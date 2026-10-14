@@ -3,7 +3,7 @@
    Latence — noyau : utilitaires, réglages, stockage, Gemini, normes,
    rapport, Google Drive
    ===================================================================== */
-const APP_VERSION = '1.2';
+const APP_VERSION = '2.0';
 const $ = (s, r) => (r || document).querySelector(s);
 const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const uid = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-6);
@@ -32,16 +32,30 @@ function randomSecret() { const a = new Uint8Array(18); crypto.getRandomValues(a
 
 /* ---------- Réglages ---------- */
 const ST_KEY = 'latence.settings';
-const DEFAULT_MODEL = 'gemini-3.8-flash';
+const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
+/* Profils IA (banc d'essai réel oct. 2026 : Flash-Lite = lecture 9/9 en ~4 s, analyse correcte en ~8 s ;
+   3.8 Flash = analyse plus fouillée mais 2 à 4 min quand Google est surchargé) */
+const AI_PROFILES = {
+  rapide:     {l:'Rapide',     d:'Lecture et analyse en quelques secondes (3.5 Flash-Lite).', read:'gemini-3.5-flash-lite', think:'gemini-3.5-flash-lite'},
+  equilibre:  {l:'Équilibré',  d:'Lecture rapide, analyse plus raisonnée (3.6 Flash, ~20–60 s).', read:'gemini-3.5-flash-lite', think:'gemini-3.6-flash'},
+  approfondi: {l:'Approfondi', d:'Analyse la plus complète (3.8 Flash), peut prendre 2–4 min.', read:'gemini-3.5-flash-lite', think:'gemini-3.8-flash'},
+  perso:      {l:'Personnalisé', d:'Choisis les modèles toi-même.'}
+};
+function aiModel(kind) { const p = AI_PROFILES[SET.aiProfile] || AI_PROFILES.rapide; if (SET.aiProfile === 'perso') return kind === 'read' ? SET.modelRead : SET.modelThink; return p[kind]; }
 const SET_DEFAULT = {
   geminiKey:'', modelRead:DEFAULT_MODEL, modelThink:DEFAULT_MODEL,
-  driveUrl:'', driveSecret:'', driveImages:true, driveFormat:'docx', autoSync:true, rootName:'Latence – Rapports EMG',
+  driveUrl:'', driveSecret:'', driveImages:true, driveFormat:'docx', driveMode:'', aiProfile:'rapide', settingsAt:0, autoSync:true, rootName:'Latence – Rapports EMG',
   doctor:{nom:'', titre:'', etab:'', coord:''},
   theme:'auto', norms:null, comps:null, rules:null, onboarded:false, lastPull:0
 };
 let SET = (() => { try { return Object.assign(clone(SET_DEFAULT), JSON.parse(localStorage.getItem(ST_KEY) || '{}')); } catch (e) { return clone(SET_DEFAULT); } })();
 SET.doctor = Object.assign(clone(SET_DEFAULT.doctor), SET.doctor || {});
-function saveSet() { try { localStorage.setItem(ST_KEY, JSON.stringify(SET)); } catch (e) {} }
+let SET_UID = null;
+function saveSet(fromCloud) {
+  if (!fromCloud) SET.settingsAt = Date.now();
+  try { localStorage.setItem(SET_UID ? 'latence.settings.' + SET_UID : ST_KEY, JSON.stringify(SET)); } catch (e) {}
+  if (!fromCloud && typeof pushSettings === 'function') pushSettings();
+}
 const NORMS = () => SET.norms || NORMS_DEFAULT;
 const COMPS = () => SET.comps || COMPARISONS_DEFAULT;
 const RULES = () => Object.assign({}, OTHER_RULES, SET.rules || {});
@@ -122,12 +136,12 @@ function upSchema(o) {
   const r = {}; Object.keys(o).forEach(k => { r[k] = k === 'type' && typeof o[k] === 'string' ? o[k].toUpperCase() : (k === 'enum' || k === 'required' ? o[k] : upSchema(o[k])); });
   return r;
 }
-const FALLBACK_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-flash-latest'];
+const FALLBACK_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-flash-latest'];
 let GEM_LAST_MODEL = '';
 async function gemini(parts, opt) {
   opt = opt || {};
   if (!SET.geminiKey) throw new Error('Ajoute ta clé API Gemini dans Réglages.');
-  const first = (opt.model || SET.modelThink || DEFAULT_MODEL).replace(/^models\//, '');
+  const first = (opt.model || aiModel('think') || DEFAULT_MODEL).replace(/^models\//, '');
   const chain = [first, ...FALLBACK_MODELS.filter(m => m !== first)];
   let lastErr = null;
   // Jusqu'à 3 tours de la chaîne de modèles (pause croissante) si Google est surchargé

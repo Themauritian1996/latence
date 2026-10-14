@@ -36,3 +36,10 @@ Nom, date de naissance et numéro de dossier ne sont jamais envoyés à Gemini (
 - `assets/` : icône et écran de démarrage · `signing/` : clé de signature fixe (mises à jour sans perte de données)
 
 Outil d'aide à la lecture : le médecin révise et signe le rapport.
+
+## Comptes (v2)
+
+- Connexion Google (site web) ou courriel + mot de passe (site et app Android), **sur invitation** : l'administrateur ajoute les courriels dans Réglages › Utilisateurs invités.
+- Données de chaque compte (cas sans photos + réglages, dont la clé Gemini) dans Firestore, région Montréal (`northamerica-northeast1`), projet Firebase « EMGlatence ». Règles : `firebase/firestore.rules`.
+- Rapports : « Mon Drive » (connexion Google, accès limité aux fichiers créés par l'app) ou « Script » (Apps Script, fonctionne aussi dans l'APK). Format Word (.docx) par défaut.
+- Profils IA : Rapide (3.5 Flash-Lite), Équilibré (3.6 Flash), Approfondi (3.8 Flash), Personnalisé.

@@ -31,7 +31,10 @@ const ICON = {
   search:'<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
   key:'<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>',
   download:'<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
-  upload:'<path d="M12 20V9M7 14l5-5 5 5M5 4h14"/>'
+  upload:'<path d="M12 20V9M7 14l5-5 5 5M5 4h14"/>',
+  user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  mail:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+  phone:'<rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/>'
 };
 function ic(n, s) { s = s || 22; return `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n] || ''}</svg>`; }
 
@@ -47,7 +50,7 @@ const ATCD = ['Diabète', 'Hypothyroïdie', 'Insuffisance rénale', 'Alcool', 'C
 const MEMBRES = ['MS droit', 'MS gauche', 'MI droit', 'MI gauche', 'Face / bulbaire', 'Paraspinaux'];
 
 function newCase() {
-  return {id:uid(), createdAt:Date.now(), updatedAt:Date.now(), date:todayISO(), final:false,
+  return {id:uid(), owner:(AUTH.user && AUTH.user.uid) || null, createdAt:Date.now(), updatedAt:Date.now(), date:todayISO(), final:false,
     patient:{nom:'', prenom:'', dossier:'', ddn:'', sexe:'', taille:''},
     clin:{referent:'', motif:'', debut:'', symptomes:'', examen:'', atcd:[], atcdTxt:'', membres:[], tMain:'', tPied:''},
     photos:[], emgPhotos:[], ncs:{rows:[], tMain:null, tPied:null, autres:'', at:null, lisibilite:''},
@@ -67,9 +70,9 @@ function stepDone(c, i) {
 const pName = c => [c.patient.nom ? c.patient.nom.toUpperCase() : '', c.patient.prenom].filter(Boolean).join(' ') || 'Nouveau patient';
 
 /* ---------- Sauvegarde ---------- */
-const flushSave = debounce(() => { if (cur) DB.put('cases', storableCase(cur)).catch(e => toast('Enregistrement impossible : ' + e.message)); }, 350);
+const flushSave = debounce(() => { if (cur) { DB.put('cases', storableCase(cur)).catch(e => toast('Enregistrement impossible : ' + e.message)); cloudPushCase(cur); } }, 350);
 function touch(noRender) { if (!cur) return; cur.updatedAt = Date.now(); if (cur.drive && cur.drive.state === 'ok') cur.drive.state = 'stale'; flushSave(); updateSync(); if (!noRender) render(); }
-async function saveNow(c) { c = c || cur; if (c) await DB.put('cases', storableCase(c)); }
+async function saveNow(c) { c = c || cur; if (c) { await DB.put('cases', storableCase(c)); cloudPushCase(c); } }
 
 /* ---------- UI : utilitaires ---------- */
 let toastT;
@@ -92,7 +95,8 @@ function confirmSheet(title, text, okLbl, danger) {
 function applyTheme() { const r = document.documentElement; if (SET.theme === 'auto') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', SET.theme); }
 function updateSync() {
   const el = $('#sync'); if (!el) return;
-  if (!SET.driveUrl) { el.className = 'sync'; el.textContent = ''; return; }
+  if (AUTH.state !== 'in' && AUTH.state !== 'offline') { el.className = 'sync'; el.textContent = ''; return; }
+  if (driveModeEff() === 'off') { el.className = 'sync ' + (AUTH.state === 'in' ? 'ok' : 'wait'); el.textContent = AUTH.state === 'in' ? 'Synchronisé' : 'Hors ligne'; return; }
   const pend = CASES.filter(c => c.report && c.final && c.drive && c.drive.state !== 'ok').length;
   const err = CASES.some(c => c.drive && c.drive.state === 'err');
   el.className = 'sync ' + (err ? 'err' : pend ? 'wait' : 'ok');
@@ -119,6 +123,10 @@ async function saveFile(name, mime, content) {
    ===================================================================== */
 function render() {
   applyTheme();
+  if (AUTH.state !== 'in' && AUTH.state !== 'offline') {
+    $('#gear').innerHTML = ''; $('#navbar').style.display = 'none'; $('#bar').innerHTML = '';
+    $('#view').innerHTML = viewLogin(); updateSync(); return;
+  }
   const inCase = S.view === 'case' && cur;
   $('#gear').innerHTML = ic('gear');
   $('#navbar').style.display = inCase ? 'none' : '';
@@ -142,6 +150,36 @@ async function hydratePhotos() {
   for (const el of $$('img[data-ph]')) { if (el.src && !el.src.endsWith('#')) continue; const d = await photoData(el.dataset.ph); if (d) el.src = d; }
 }
 
+
+/* ---------- Connexion ---------- */
+function viewLogin() {
+  const st = AUTH.state, u = AUTH.user || {};
+  const brand = `<div style="text-align:center;margin:28px 0 22px"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--pos)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 13h5l2-6 3 12 2.5-9 1.5 3h6"/></svg><h1 class="hero-title" style="margin:10px 0 4px">Latence</h1><p class="muted" style="margin:0">Lecture des conductions, plan d'EMG et rapport</p></div>`;
+  if (st === 'loading') return `<div class="wrap">${brand}<p class="empty">Chargement…</p></div>`;
+  if (st === 'verify') return `<div class="wrap">${brand}<div class="card"><h3 class="h3">${ic('mail', 18)} Vérifie ton courriel</h3>
+    <p class="small">Un lien de confirmation a été envoyé à <b>${esc(u.email)}</b>. Ouvre-le, puis reviens ici.</p>
+    <div class="btns"><button class="btn primary" data-a="verify-check">J'ai confirmé</button><button class="btn ghost" data-a="verify-resend">Renvoyer le courriel</button></div>
+    <button class="btn sm danger-ghost" data-a="sign-out" style="margin-top:6px">Se déconnecter</button></div></div>`;
+  if (st === 'denied') return `<div class="wrap">${brand}<div class="card"><h3 class="h3">Accès sur invitation</h3>
+    <p class="small"><b>${esc(u.email)}</b> n'est pas encore autorisé. Demande à l'administrateur de Latence de t'inviter, puis touche « Réessayer ».</p>
+    <div class="btns"><button class="btn primary" data-a="verify-check">Réessayer</button><button class="btn danger-ghost" data-a="sign-out">Se déconnecter</button></div></div></div>`;
+  const up = S.loginMode === 'up';
+  return `<div class="wrap">${brand}
+  ${AUTH.msg ? `<div class="note warn">${esc(AUTH.msg)}</div>` : ''}
+  ${!isNativeApp() ? `<button class="btn ghost big wide" data-a="login-google"><svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg> Continuer avec Google</button>
+  <p class="muted small" style="text-align:center;margin:4px 0 14px">Recommandé : donne aussi accès à ton Google Drive pour les rapports.</p>` : ''}
+  <div class="card"><h3 class="h3">${up ? 'Créer un compte' : 'Connexion par courriel'}</h3>
+    <label class="lab">Courriel<input class="field" id="lg-email" type="email" autocomplete="email" inputmode="email"></label>
+    <label class="lab">Mot de passe<input class="field" id="lg-pw" type="password" autocomplete="${up ? 'new-password' : 'current-password'}" placeholder="${up ? '8 caractères ou plus' : ''}"></label>
+    <div class="btns"><button class="btn primary" data-a="${up ? 'signup-email' : 'login-email'}">${up ? 'Créer le compte' : 'Se connecter'}</button></div>
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn sm ghost" data-a="login-mode">${up ? 'J\'ai déjà un compte' : 'Créer un compte'}</button>
+      ${!up ? '<button class="btn sm ghost" data-a="reset-pw">Mot de passe oublié</button>' : ''}</div>
+  </div>
+  <p class="muted small" style="text-align:center">Accès sur invitation. Tes données restent privées : chaque compte ne voit que ses propres cas.</p>
+  </div>`;
+}
+
 /* ---------- Accueil ---------- */
 function greet() { const h = new Date().getHours(); return h < 5 ? 'Bonne nuit' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir'; }
 function caseRow(c) {
@@ -155,7 +193,7 @@ function viewHome() {
   const pend = CASES.filter(c => !c.final).length;
   const recent = [...CASES].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5);
   const setup = !SET.geminiKey ? `<div class="card"><h3 class="h3">Configurer Gemini</h3><p class="muted small" style="margin:0 0 12px">Ajoute ta clé API Google AI Studio pour lire les photos et générer les rapports.</p><button class="btn primary sm" data-a="nav" data-v="settings">${ic('key', 18)} Ajouter la clé</button></div>`
-    : !SET.driveUrl ? `<div class="card flat"><h3 class="h3">Rapports dans Google Drive</h3><p class="muted small" style="margin:0 0 12px">Connecte ton Drive pour classer automatiquement chaque rapport par jour et par patient.</p><button class="btn ghost sm" data-a="nav" data-v="settings">${ic('cloud', 18)} Connecter Drive</button></div>` : '';
+    : driveModeEff() === 'off' && !S.hideDriveTip ? `<div class="card flat"><h3 class="h3">Rapports dans Google Drive</h3><p class="muted small" style="margin:0 0 12px">Connecte ton Drive pour classer automatiquement chaque rapport par jour et par patient.</p><button class="btn ghost sm" data-a="nav" data-v="settings">${ic('cloud', 18)} Connecter Drive</button></div>` : '';
   return `<div class="wrap">
   <p class="status live-dot">${esc(fmtDateLong(t))}</p>
   <h1 class="hero-title">${greet()}${SET.doctor.nom ? ',<br>' + esc(SET.doctor.nom.replace(/^(dr|dre|docteure?)\.?\s+/i, '').split(' ')[0]) : ''}</h1>
@@ -183,7 +221,7 @@ function viewHistory() {
   return `<div class="wrap"><h1 class="hero-title" style="font-size:38px">Historique</h1>
   <input class="search" type="search" placeholder="Nom, dossier, diagnostic…" value="${esc(S.q)}" data-a-input="hist-q" aria-label="Rechercher">
   <div class="chips scroll">${f.map(([k, l]) => `<button class="chip ${S.filter === k ? 'on' : ''}" data-a="hist-f" data-v="${k}">${l}</button>`).join('')}</div>
-  ${SET.driveUrl ? `<button class="btn sm ghost" data-a="drive-pull" style="margin:0 0 6px">${ic('refresh', 18)} Récupérer depuis Drive</button>` : ''}
+  ${AUTH.state === 'in' ? `<button class="btn sm ghost" data-a="cloud-sync" style="margin:0 0 6px">${ic('refresh', 18)} Synchroniser</button>` : ''}
   <div id="hist-list">${html || '<p class="empty">Aucun cas.</p>'}</div></div>`;
 }
 
@@ -355,7 +393,7 @@ function stepReport(c) {
     <button class="btn sm ghost" data-a="rep-word">${ic('doc', 16)} Word</button>
     <button class="btn sm ghost" data-a="rep-export">${ic(CAP() ? 'share' : 'print', 16)} ${CAP() ? 'Partager' : 'PDF / imprimer'}</button>
   </div>
-  ${dr.state === 'ok' ? `<div class="note good no-print">${ic('cloud', 16)} Dans Drive (${esc(c.date)} › ${esc(patientFolder(c))})${dr.url ? ` — <a href="${esc(dr.url)}" target="_blank" rel="noopener">ouvrir le dossier</a>` : ''}</div>` : dr.state === 'err' ? `<div class="note bad no-print">Envoi Drive échoué : ${esc(dr.error || '')}</div>` : dr.state === 'stale' ? '<div class="note warn no-print">Modifié depuis le dernier envoi au Drive.</div>' : ''}
+  ${dr.state === 'ok' ? `<div class="note good no-print">${ic('cloud', 16)} Dans Drive (${esc(c.date)} › ${esc(patientFolder(c))})${dr.url ? ` — <a href="${esc(dr.url)}" target="_blank" rel="noopener">ouvrir le dossier</a>` : ''}</div>` : dr.state === 'auth' ? `<div class="note warn no-print">La connexion Google Drive a expiré. <button class="btn sm ghost" data-a="drive-send" style="margin-left:6px">${ic('cloud', 16)} Reconnecter et envoyer</button></div>` : dr.state === 'err' ? `<div class="note bad no-print">Envoi Drive échoué : ${esc(dr.error || '')}</div>` : dr.state === 'stale' ? '<div class="note warn no-print">Modifié depuis le dernier envoi au Drive.</div>' : ''}
   ${S.editReport ? keys.map(([k, l]) => `<div class="sec-ed"><label class="lab">${l}<textarea class="field" rows="${k === 'interpretation' || k === 'ncs_resume' ? 6 : 3}" data-f="report.sections.${k}">${esc(c.report.sections[k] || '')}</textarea></label></div>`).join('')
     : `<div class="rep">${reportParts(c).body}</div>`}
   <button class="btn ghost wide no-print" data-a="report-gen">${ic('refresh', 18)} Régénérer le rapport</button>`;
@@ -370,8 +408,8 @@ function barCase() {
   if (s === 3) main = c.analysis ? `<button class="btn primary" data-a="to-emg">${ic('needle', 18)} Passer à l'EMG</button><button class="btn ghost" data-a="skip-emg" title="Rapport sans EMG">${ic('doc')}</button>` : `<button class="btn go" data-a="analyze">${ic('brain', 18)} Analyser</button>`;
   if (s === 4) main = `<button class="btn go" data-a="report-gen">${ic('doc', 18)} ${c.report ? 'Régénérer le rapport' : 'Générer le rapport'}</button>`;
   if (s === 5) main = !c.report ? `<button class="btn go" data-a="report-gen">${ic('doc', 18)} Générer le rapport</button>`
-    : !c.final ? `<button class="btn go" data-a="finalize">${ic('check', 18)} Finaliser${SET.driveUrl ? ' et envoyer' : ''}</button>`
-    : `<button class="btn primary" data-a="drive-send" ${SET.driveUrl ? '' : 'disabled'}>${ic('cloud', 18)} ${c.drive && c.drive.state === 'ok' ? 'Renvoyer au Drive' : 'Envoyer au Drive'}</button>`;
+    : !c.final ? `<button class="btn go" data-a="finalize">${ic('check', 18)} Finaliser${driveModeEff() !== 'off' && SET.autoSync ? ' et envoyer' : ''}</button>`
+    : `<button class="btn primary" data-a="drive-send" ${driveModeEff() !== 'off' ? '' : 'disabled'}>${ic('cloud', 18)} ${c.drive && c.drive.state === 'ok' ? 'Renvoyer au Drive' : 'Envoyer au Drive'}</button>`;
   return `<div class="bar"><div class="bar-in">${back}${main}</div></div>`;
 }
 
@@ -381,19 +419,44 @@ function viewSettings() {
     return `<select class="field" data-sf="${k}">${all.map(m => `<option ${m === SET[k] ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select>`; };
   const nr = NORMS().map((n, i) => `<div class="norm-row"><span>${esc(n.label)}</span>${['lat', 'amp', 'cv', 'f'].map(k => n[k] === undefined || (n[k] === null && n.grp === 'Comparatif') ? '<span></span>' : `<input inputmode="decimal" data-nf="${i}.${k}" value="${n[k] == null ? '' : n[k]}" aria-label="${k}">`).join('')}</div>`).join('');
   const R = RULES();
+  const u = AUTH.user || {};
+  const acct = `<div class="card"><div class="sec-title" style="margin:0 0 6px"><h3 class="h3" style="margin:0">${ic('user', 18)} Compte</h3>${AUTH.admin ? '<span class="tag ink">Administrateur</span>' : ''}</div>
+    <p class="small" style="margin:0 0 4px"><b>${esc(u.displayName || u.name || '')}</b> ${esc(u.email || '')}</p>
+    <p class="muted small" style="margin:0 0 10px">${AUTH.state === 'offline' ? 'Hors ligne : les changements seront synchronisés au retour d\'Internet.' : 'Tes cas et réglages sont synchronisés sur tous tes appareils (Firestore, Montréal). Les photos restent sur l\'appareil et dans Drive.'}</p>
+    <div class="btns" style="margin-top:0">${AUTH.state === 'in' ? `<button class="btn sm ghost" data-a="cloud-sync">${ic('refresh', 16)} Synchroniser</button>` : ''}
+    ${AUTH.state === 'in' && !isNativeApp() && hasProvider('google.com') && !hasProvider('password') ? `<button class="btn sm ghost" data-a="add-pw">${ic('key', 16)} Mot de passe pour l'app Android</button>` : ''}
+    <button class="btn sm danger-ghost" data-a="sign-out">Se déconnecter</button></div></div>`;
+  const admin = AUTH.admin && AUTH.state === 'in' ? `<details class="acc" id="acc-admin"><summary>Utilisateurs invités ${ic('down', 18)}</summary><div class="acc-in">
+    <p class="muted small" style="margin:0 0 8px">Seules les adresses de cette liste peuvent utiliser Latence. Chaque personne a ses propres cas, sa clé Gemini et son Drive.</p>
+    <div style="display:flex;gap:8px;margin:0 0 10px"><input class="field" id="inv-email" type="email" placeholder="courriel@exemple.com" autocomplete="off"><button class="btn sm primary" data-a="inv-add">Inviter</button></div>
+    <div id="inv-list">${S.invites ? (S.invites.length ? S.invites.map(i => `<div class="lib-item"><span>${esc(i.email)}<small>Invité ${i.at ? 'le ' + new Date(i.at).toLocaleDateString('fr-CA') : ''}</small></span><button class="icon-btn" data-a="inv-del" data-v="${esc(i.email)}" aria-label="Retirer">${ic('trash', 18)}</button></div>`).join('') : '<p class="empty">Aucune invitation.</p>') : `<button class="btn sm ghost" data-a="inv-load">Afficher la liste</button>`}</div>
+    <div class="note small">Message à envoyer : « Ouvre ${esc(location.origin + location.pathname)} (ou installe l'app Android depuis Réglages › Installer), crée ton compte avec cette adresse, puis ajoute ta clé Gemini dans Réglages. »</div>
+  </div></details>` : '';
+  const install = !isNativeApp() ? `<details class="acc"><summary>${ic('phone', 18)} Installer sur le téléphone ${ic('down', 18)}</summary><div class="acc-in">
+    <p class="small" style="margin:0 0 8px"><b>Android :</b> télécharge l'application, puis ouvre le fichier pour l'installer (autorise l'installation depuis ton navigateur si demandé).</p>
+    <a class="btn sm primary" href="Latence.apk" download="Latence.apk">${ic('download', 16)} Télécharger Latence.apk</a>
+    <p class="small" style="margin:12px 0 0"><b>Ou</b> (Android et iPhone) : menu du navigateur › <b>Ajouter à l'écran d'accueil</b>. C'est la version la plus complète (connexion Google et Drive personnel).</p>
+  </div></details>` : '';
   return `<div class="wrap"><h1 class="hero-title" style="font-size:38px">Réglages</h1>
-  ${!SET.geminiKey || !SET.driveUrl ? `<div class="card"><h3 class="h3">Configuration rapide</h3><p class="muted small" style="margin:0 0 8px">Colle le code ou le lien de configuration reçu pour tout régler d'un coup.</p><div style="display:flex;gap:8px"><input class="field" id="cfg-code" placeholder="https://…#config=… ou code" autocomplete="off"><button class="btn sm primary" data-a="cfg-apply">Appliquer</button></div></div>` : ''}
+  ${acct}${admin}
+  ${!SET.geminiKey ? `<div class="card"><h3 class="h3">Configuration rapide</h3><p class="muted small" style="margin:0 0 8px">Colle le code ou le lien de configuration reçu pour tout régler d'un coup.</p><div style="display:flex;gap:8px"><input class="field" id="cfg-code" placeholder="https://…#config=… ou code" autocomplete="off"><button class="btn sm primary" data-a="cfg-apply">Appliquer</button></div></div>` : ''}
   <details class="acc" ${!SET.geminiKey ? 'open' : ''}><summary>Gemini (IA) ${SET.geminiKey ? '<span class="tag pos">configuré</span>' : '<span class="tag neg">à faire</span>'} ${ic('down', 18)}</summary><div class="acc-in">
     <ol class="howto"><li>Va sur <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> et crée une clé API.</li><li>Colle-la ci-dessous, puis touche « Tester ».</li><li>Pour des données de patients, active la facturation sur le projet de la clé : au niveau payant, Google n'utilise pas les requêtes pour entraîner ses modèles.</li></ol>
     <label class="lab">Clé API<input class="field" type="password" autocomplete="off" data-sf="geminiKey" value="${esc(SET.geminiKey)}" placeholder="AIza…"></label>
-    <label class="lab">Modèle pour lire les photos${mdl('modelRead')}</label>
-    <label class="lab">Modèle pour l'analyse et le rapport${mdl('modelThink')}</label>
-    <p class="muted small" style="margin:-4px 0 8px">Recommandé : ${DEFAULT_MODEL}. Si le modèle choisi est surchargé ou hors quota, l'app bascule automatiquement sur un autre modèle Flash. Les modèles « pro » ou « argon » demandent la facturation active.</p>
+    <label class="lab">Vitesse / profondeur de l'analyse</label>
+    <div class="chips">${Object.entries(AI_PROFILES).map(([k, p]) => `<button class="chip ${(SET.aiProfile || 'rapide') === k ? 'on' : ''}" data-a="set-val" data-k="aiProfile" data-v="${k}">${p.l}</button>`).join('')}</div>
+    <p class="muted small" style="margin:0 0 10px">${esc((AI_PROFILES[SET.aiProfile] || AI_PROFILES.rapide).d)} Les valeurs anormales sont toujours calculées par l'app selon tes normes, quel que soit le modèle. Si un modèle est surchargé, l'app en essaie un autre automatiquement.</p>
+    ${SET.aiProfile === 'perso' ? `<label class="lab">Modèle pour lire les photos${mdl('modelRead')}</label><label class="lab">Modèle pour l'analyse et le rapport${mdl('modelThink')}</label>` : ''}
     <div class="btns"><button class="btn sm ghost" data-a="gem-test">${ic('check', 16)} Tester</button><button class="btn sm ghost" data-a="gem-models">${ic('refresh', 16)} Charger les modèles</button></div>
   </div></details>
 
-  <details class="acc" ${SET.geminiKey && !SET.driveUrl ? 'open' : ''}><summary>Google Drive ${SET.driveUrl ? '<span class="tag pos">connecté</span>' : '<span class="tag">optionnel</span>'} ${ic('down', 18)}</summary><div class="acc-in">
-    <p class="small" style="margin:0 0 8px">Chaque rapport finalisé est enregistré en Word (ou PDF) avec une version texte dans <b>${esc(SET.rootName)} › date › patient</b>, avec les photos si tu le souhaites.</p>
+  <details class="acc" ${SET.geminiKey && driveModeEff() === 'off' ? 'open' : ''}><summary>Google Drive ${driveModeEff() !== 'off' ? '<span class="tag pos">' + (driveModeEff() === 'google' ? 'mon Drive' : 'script') + '</span>' : '<span class="tag">désactivé</span>'} ${ic('down', 18)}</summary><div class="acc-in">
+    <p class="small" style="margin:0 0 8px">Chaque rapport finalisé est enregistré dans <b>${esc(SET.rootName)} › date › patient</b> (Word + texte, et photos si tu veux).</p>
+    <div class="seg" role="group" aria-label="Mode Drive">${[['google', 'Mon Drive'], ['script', 'Script'], ['off', 'Désactivé']].map(([k, l]) => `<button data-a="set-val" data-k="driveMode" data-v="${k}" class="${driveModeEff() === k ? 'on' : ''}" ${k === 'google' && isNativeApp() ? 'disabled' : ''}>${l}</button>`).join('')}</div>
+    ${driveModeEff() === 'google' ? `<p class="small" style="margin:0 0 8px">Connexion directe à ton Google Drive : l'app n'a accès qu'aux fichiers qu'elle crée. La connexion dure une heure ; l'app te la redemande au besoin.</p>
+      <div class="btns" style="margin-top:0"><button class="btn sm ${tokenValid() ? 'ghost' : 'primary'}" data-a="drive-connect">${ic('cloud', 16)} ${tokenValid() ? 'Connecté — reconnecter' : 'Connecter Google Drive'}</button></div>` : ''}
+    ${driveModeEff() === 'google' && isNativeApp() ? '<div class="note warn">Le mode « Mon Drive » fonctionne sur le site web. Dans l\'app Android, utilise le mode « Script ».</div>' : ''}
+    ${driveModeEff() === 'script' ? `<p class="muted small" style="margin:0 0 6px">Mode avancé (fonctionne aussi dans l'app Android) : un petit script Google dans ton compte reçoit les rapports.</p>
     <ol class="howto">
       <li>Touche « Générer » pour créer ton mot de passe de synchronisation, puis « Copier le script ».</li>
       <li>Sur un ordinateur, ouvre <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener">script.google.com</a> (compte Google du Drive voulu), efface le contenu et colle le script.</li>
@@ -403,12 +466,13 @@ function viewSettings() {
     <label class="lab">Mot de passe de synchronisation<div style="display:flex;gap:8px;margin-top:6px"><input class="field" style="margin:0" data-sf="driveSecret" value="${esc(SET.driveSecret)}" placeholder="Générer →"><button class="btn sm ghost" data-a="secret-gen">Générer</button></div></label>
     <button class="btn sm ghost" data-a="script-copy" style="margin:0 0 12px">${ic('copy', 16)} Copier le script (secret inclus)</button>
     <label class="lab">URL de l'application Web<input class="field" data-sf="driveUrl" value="${esc(SET.driveUrl)}" placeholder="https://script.google.com/macros/s/…/exec"></label>
-    <label class="lab">Dossier racine<input class="field" data-sf="rootName" value="${esc(SET.rootName)}"></label>
-    <label class="lab">Format du rapport dans Drive</label>
+    <label class="lab">Format du rapport</label>
     <div class="seg" role="group" aria-label="Format">${[['docx', 'Word'], ['pdf', 'PDF'], ['both', 'Les deux']].map(([k, l]) => `<button data-a="set-val" data-k="driveFormat" data-v="${k}" class="${(SET.driveFormat || 'docx') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="btns"><button class="btn sm ghost" data-a="drive-test">${ic('check', 16)} Tester</button></div>` : ''}
+    ${driveModeEff() !== 'off' ? `<label class="lab">Dossier racine<input class="field" data-sf="rootName" value="${esc(SET.rootName)}"></label>
     <div class="seg" role="group" aria-label="Photos"><button data-a="set-bool" data-k="driveImages" data-v="1" class="${SET.driveImages ? 'on' : ''}">Avec photos</button><button data-a="set-bool" data-k="driveImages" data-v="0" class="${!SET.driveImages ? 'on' : ''}">Sans photos</button></div>
     <div class="seg" role="group" aria-label="Envoi"><button data-a="set-bool" data-k="autoSync" data-v="1" class="${SET.autoSync ? 'on' : ''}">Envoi à la finalisation</button><button data-a="set-bool" data-k="autoSync" data-v="0" class="${!SET.autoSync ? 'on' : ''}">Manuel</button></div>
-    <div class="btns"><button class="btn sm ghost" data-a="drive-test">${ic('check', 16)} Tester</button><button class="btn sm ghost" data-a="drive-pull">${ic('download', 16)} Récupérer l'historique</button><button class="btn sm ghost" data-a="drive-all">${ic('upload', 16)} Envoyer tout</button></div>
+    <div class="btns"><button class="btn sm ghost" data-a="drive-all">${ic('upload', 16)} Envoyer tous les rapports</button></div>` : ''}
   </div></details>
 
   <details class="acc"><summary>Signature du rapport ${ic('down', 18)}</summary><div class="acc-in">
@@ -427,12 +491,13 @@ function viewSettings() {
     <div class="btns"><button class="btn sm danger-ghost" data-a="norms-reset">Rétablir les normes par défaut</button></div>
   </div></details>
 
+  ${install}
   <details class="acc"><summary>Affichage et données ${ic('down', 18)}</summary><div class="acc-in">
     <div class="seg">${[['auto', 'Auto'], ['light', 'Clair'], ['dark', 'Sombre']].map(([k, l]) => `<button data-a="theme" data-v="${k}" class="${SET.theme === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div class="btns"><button class="btn sm ghost" data-a="backup">${ic('download', 16)} Sauvegarde (JSON)</button><label class="btn sm ghost file-btn">${ic('upload', 16)} Restaurer<input type="file" accept="application/json,.json" data-a-file="restore"></label></div>
     <div class="btns"><button class="btn sm danger-ghost" data-a="wipe">${ic('trash', 16)} Effacer toutes les données de l'appareil</button></div>
   </div></details>
-  <div class="note small">Latence ${APP_VERSION} — outil d'aide à la lecture. Les anomalies sont calculées selon les normes ci-dessus ; l'interprétation de Gemini doit être révisée par le médecin, qui reste responsable du rapport. Données des patients : sur cet appareil et dans ton Google Drive ; Gemini ne reçoit que l'âge, le sexe, la taille, la clinique et les valeurs (et les photos, à recadrer).</div>
+  <div class="note small">Latence ${APP_VERSION} — outil d'aide à la lecture. Les anomalies sont calculées selon les normes ci-dessus ; l'interprétation de Gemini doit être révisée par le médecin, qui reste responsable du rapport. Données des patients : sur cet appareil, dans ton compte (Firestore, Montréal) et dans ton Google Drive ; Gemini ne reçoit que l'âge, le sexe, la taille, la clinique et les valeurs (et les photos, à recadrer).</div>
   </div>`;
 }
 
@@ -473,7 +538,7 @@ async function extractNcs() {
   try {
     const keys = NORMS().map(n => `${n.key} = ${n.label}`).join('\n');
     const parts = [...await imageParts(c.photos), {text:'Transcris toutes les mesures de ces photos.'}];
-    const j = await gemini(parts, {system:PROMPT_EXTRACT(keys), schema:SCHEMA_EXTRACT, model:SET.modelRead});
+    const j = await gemini(parts, {system:PROMPT_EXTRACT(keys), schema:SCHEMA_EXTRACT, model:aiModel('read')});
     const rows = (j.rows || []).map(r => ({
       type: ['motor', 'sensory', 'mixed', 'F', 'H', 'blink', 'other'].includes(r.type) ? r.type : 'other',
       nerf: r.nerf || '', cote: ['G', 'D'].includes(r.cote) ? r.cote : '?', stimulation: r.stimulation || '', enregistrement: r.enregistrement || '',
@@ -499,7 +564,7 @@ async function analyze() {
       autres_infos: c.ncs.autres || null,
       bibliotheque_muscles: MUSCLES.map(m => `${m.n} (${m.en}) — ${m.nerf}, ${m.rac}`)
     };
-    const a = await gemini([{text:PROMPT_ANALYSIS + '\n\nDONNÉES :\n' + JSON.stringify(payload)}], {system:SYS_BASE + '\n' + KNOWLEDGE, schema:SCHEMA_ANALYSIS, model:SET.modelThink, onWait: () => busy('Gemini est très sollicité…', 'Nouvel essai automatique en cours')});
+    const a = await gemini([{text:PROMPT_ANALYSIS + '\n\nDONNÉES :\n' + JSON.stringify(payload)}], {system:SYS_BASE + '\n' + KNOWLEDGE, schema:SCHEMA_ANALYSIS, model:aiModel('think'), onWait: () => busy('Gemini est très sollicité…', 'Nouvel essai automatique en cours')});
     a.emg_plan = (a.emg_plan || []).map(m => Object.assign(m, {sel: m.priorite !== 'optionnel'}));
     a.at = Date.now(); c.analysis = a; touch(true); await saveNow();
     S.step = 3; busy(); render(); window.scrollTo(0, 0);
@@ -520,7 +585,7 @@ async function extractEmg() {
   busy('Lecture du tableau EMG…');
   try {
     const last = c.emgPhotos.slice(-3);
-    const j = await gemini([...await imageParts(last), {text:'Transcris ce tableau d\'EMG à l\'aiguille.'}], {system:PROMPT_EMG_EXTRACT, schema:SCHEMA_EMG_EXTRACT, model:SET.modelRead});
+    const j = await gemini([...await imageParts(last), {text:'Transcris ce tableau d\'EMG à l\'aiguille.'}], {system:PROMPT_EMG_EXTRACT, schema:SCHEMA_EMG_EXTRACT, model:aiModel('read')});
     let n = 0;
     (j.muscles || []).forEach(m => {
       const side = m.cote === 'G' ? 'G' : 'D'; const tmpl = emgEntry(m.muscle, side);
@@ -545,7 +610,7 @@ async function genReport() {
       emg_aiguille: emgContext(c), commentaires_examen: c.emgNote || null,
       membres_etudies: c.clin.membres
     };
-    const r = await gemini([{text:PROMPT_REPORT + '\n\nDONNÉES :\n' + JSON.stringify(payload)}], {system:SYS_BASE + '\n' + KNOWLEDGE, schema:SCHEMA_REPORT, model:SET.modelThink, onWait: () => busy('Gemini est très sollicité…', 'Nouvel essai automatique en cours')});
+    const r = await gemini([{text:PROMPT_REPORT + '\n\nDONNÉES :\n' + JSON.stringify(payload)}], {system:SYS_BASE + '\n' + KNOWLEDGE, schema:SCHEMA_REPORT, model:aiModel('think'), onWait: () => busy('Gemini est très sollicité…', 'Nouvel essai automatique en cours')});
     c.report = {sections:{renseignements:r.renseignements || '', technique:r.technique || '', ncs_resume:r.ncs_resume || '', emg_resume:r.emg_resume || '', interpretation:r.interpretation || '', conclusion:r.conclusion || '', recommandations:r.recommandations || ''}, at:Date.now()};
     c.final = false; touch(true); await saveNow();
     S.step = 5; S.editReport = false; busy(); render(); window.scrollTo(0, 0);
@@ -556,17 +621,18 @@ async function sendDrive(c, quiet) {
   c = c || cur;
   if (!quiet) busy('Envoi vers Google Drive…');
   try {
-    const j = await driveSaveCase(c);
+    const j = driveModeEff() === 'google' ? await driveSaveGoogle(c) : await driveSaveCase(c);
     c.drive = {state:'ok', at:Date.now(), url:j.url || '', error:''};
     await saveNow(c); if (!quiet) { busy(); toast('Rapport enregistré dans Drive'); }
   } catch (e) {
-    c.drive = {state:'err', at:Date.now(), error:e.message}; await saveNow(c);
+    c.drive = {state: e instanceof DriveAuthError ? 'auth' : 'err', at:Date.now(), error:e.message}; await saveNow(c);
     if (!quiet) { busy(); toast(e.message); }
   }
   updateSync(); if (!quiet) rerender();
 }
 async function retryPending() {
-  if (!SET.driveUrl || !navigator.onLine) return;
+  const mode = driveModeEff();
+  if (mode === 'off' || !navigator.onLine || (mode === 'google' && !tokenValid())) return;
   for (const c of CASES.filter(x => x.final && x.report && (!x.drive || x.drive.state !== 'ok'))) await sendDrive(c, true);
   updateSync();
 }
@@ -623,7 +689,7 @@ function cropSheet(i) {
 function caseMenu() {
   openSheet(`<div class="sh-head"><h2 class="sh-title">${esc(pName(cur))}</h2><button class="icon-btn" data-a="sheet-close" aria-label="Fermer">${ic('x')}</button></div>
   ${cur.report ? `<button class="row" data-a="rep-copy">${ic('copy')}<span style="flex:1">Copier le rapport (texte DME)</span></button>` : ''}
-  ${cur.report && SET.driveUrl ? `<button class="row" data-a="drive-send">${ic('cloud')}<span style="flex:1">Envoyer au Drive</span></button>` : ''}
+  ${cur.report && driveModeEff() !== 'off' ? `<button class="row" data-a="drive-send">${ic('cloud')}<span style="flex:1">Envoyer au Drive</span></button>` : ''}
   ${cur.final ? `<button class="row" data-a="unfinal">${ic('edit')}<span style="flex:1">Rouvrir (retirer « finalisé »)</span></button>` : ''}
   <button class="row" data-a="dup">${ic('copy')}<span style="flex:1">Dupliquer (même patient, nouvel examen)</span></button>
   <button class="row" data-a="case-del" style="color:var(--neg)">${ic('trash')}<span style="flex:1">Supprimer ce cas</span></button>`);
@@ -680,19 +746,50 @@ async function handle(a, el) {
       else { const w = window.open('', '_blank'); if (w) { w.document.write(reportHTMLDoc(cur)); w.document.close(); setTimeout(() => w.print(), 400); } else window.print(); }
       break;
     }
-    case 'finalize': cur.final = true; touch(true); await saveNow(); rerender(); toast('Rapport finalisé'); if (SET.driveUrl && SET.autoSync) sendDrive(cur); break;
+    case 'finalize': {
+      const mode = driveModeEff();
+      if (mode === 'google' && SET.autoSync && !tokenValid()) { try { await driveConnect(); } catch (e) { toast(authErr(e)); } }
+      cur.final = true; touch(true); await saveNow(); rerender(); toast('Rapport finalisé');
+      if (mode !== 'off' && SET.autoSync) sendDrive(cur); break;
+    }
+    case 'drive-connect': try { await driveConnect(); toast('Google Drive connecté ✓'); rerender(); } catch (e) { toast(authErr(e)); } break;
     case 'unfinal': cur.final = false; touch(true); closeSheet(); rerender(); break;
-    case 'drive-send': closeSheet(); sendDrive(cur); break;
+    case 'drive-send': closeSheet(); if (driveModeEff() === 'google' && !tokenValid()) { try { await driveConnect(); } catch (e) { toast(authErr(e)); break; } } sendDrive(cur); break;
     case 'case-menu': caseMenu(); break;
     case 'dup': { const c = newCase(); c.patient = clone(cur.patient); c.clin.referent = cur.clin.referent; CASES.push(c); await saveNow(c); closeSheet(); openCase(c.id, 0); break; }
     case 'case-del': {
       closeSheet(); if (!(await confirmSheet('Supprimer ce cas ?', 'Le cas et ses photos seront effacés de cet appareil. Les fichiers déjà dans Drive restent.', 'Supprimer', true))) return;
       for (const p of [...cur.photos, ...cur.emgPhotos]) await DB.del('photos', p.id);
-      await DB.del('cases', cur.id); CASES = CASES.filter(c => c.id !== cur.id); cur = null; S.view = 'history'; render(); toast('Cas supprimé'); break;
+      await DB.del('cases', cur.id); cloudDeleteCase(cur.id); CASES = CASES.filter(c => c.id !== cur.id); cur = null; S.view = 'history'; render(); toast('Cas supprimé'); break;
     }
     case 'hist-f': S.filter = d.v; rerender(); break;
     case 'sheet-close': closeSheet(); break;
     case 'sheet-close-bg': closeSheet(); break;
+    // Compte
+    case 'login-mode': S.loginMode = S.loginMode === 'up' ? 'in' : 'up'; AUTH.msg = ''; render(); break;
+    case 'login-google': try { await signInGoogle(); } catch (e) { AUTH.msg = authErr(e); render(); } break;
+    case 'login-email': case 'signup-email': {
+      const em = ($('#lg-email') || {}).value || '', pw = ($('#lg-pw') || {}).value || '';
+      if (!em || !pw) { toast('Entre ton courriel et ton mot de passe.'); break; }
+      if (a === 'signup-email' && pw.length < 8) { toast('Mot de passe : 8 caractères ou plus.'); break; }
+      busy(a === 'signup-email' ? 'Création du compte…' : 'Connexion…');
+      try { if (a === 'signup-email') await signUpEmail(em, pw); else await signInEmail(em, pw); busy(); }
+      catch (e) { busy(); AUTH.msg = authErr(e); render(); const f = $('#lg-email'); if (f) f.value = em; }
+      break;
+    }
+    case 'reset-pw': { const em = ($('#lg-email') || {}).value || ''; if (!em) { toast('Entre ton courriel d\'abord.'); break; } try { await resetPw(em); toast('Courriel de réinitialisation envoyé'); } catch (e) { toast(authErr(e)); } break; }
+    case 'verify-check': { const cu = FB && FB.auth.currentUser; if (cu) { await cu.reload(); await cu.getIdToken(true); AUTH.user = FB.auth.currentUser; } if (cu && FB.auth.currentUser.emailVerified) { busy('Vérification…'); await onAuthChanged(true); busy(); } else toast('Pas encore confirmé — ouvre le lien reçu par courriel.'); break; }
+    case 'verify-resend': try { await FB.auth.currentUser.sendEmailVerification({url: location.origin + location.pathname}); toast('Courriel renvoyé'); } catch (e) { toast(authErr(e)); } break;
+    case 'sign-out': if (!(await confirmSheet('Se déconnecter ?', 'Tes cas restent synchronisés dans ton compte. Sur cet appareil, ils seront masqués jusqu\'à ta prochaine connexion.', 'Se déconnecter'))) return; await signOutAll(); if (!FB) onAuthChanged(); break;
+    case 'add-pw': {
+      openSheet(`<div class="sh-head"><h2 class="sh-title">Mot de passe pour l'app Android</h2><button class="icon-btn" data-a="sheet-close" aria-label="Fermer">${ic('x')}</button></div><p class="muted small">L'app Android ne permet pas « Continuer avec Google ». Ajoute un mot de passe pour t'y connecter avec ${esc(AUTH.user.email)}.</p><label class="lab">Nouveau mot de passe<input class="field" id="np" type="password" autocomplete="new-password" placeholder="8 caractères ou plus"></label><div class="btns"><button class="btn primary" data-a="add-pw-ok">Enregistrer</button></div>`);
+      break;
+    }
+    case 'add-pw-ok': { const pw = $('#np').value; if (pw.length < 8) { toast('8 caractères ou plus.'); break; } try { await addPassword(pw); closeSheet(); toast('Mot de passe ajouté ✓'); rerender(); } catch (e) { toast(authErr(e)); } break; }
+    case 'cloud-sync': busy('Synchronisation…'); try { const r = await cloudSyncAll(); busy(); toast(`Synchronisé ✓ (${r.pulled} reçu(s), ${r.pushed} envoyé(s))`); rerender(); } catch (e) { busy(); toast('Synchronisation impossible : ' + e.message); } break;
+    case 'inv-load': try { S.invites = await inviteList(); rerender(); const d = $('#acc-admin'); if (d) d.open = true; } catch (e) { toast(e.message); } break;
+    case 'inv-add': try { await inviteAdd($('#inv-email').value); S.invites = await inviteList(); toast('Invitation ajoutée ✓'); rerender(); const d = $('#acc-admin'); if (d) d.open = true; } catch (e) { toast(e.message); } break;
+    case 'inv-del': if (!(await confirmSheet('Retirer l\'accès ?', d.v + ' ne pourra plus utiliser Latence. Ses données ne sont pas effacées.', 'Retirer', true))) return; try { await inviteRemove(d.v); S.invites = await inviteList(); rerender(); const x = $('#acc-admin'); if (x) x.open = true; } catch (e) { toast(e.message); } break;
     // Réglages
     case 'theme': SET.theme = d.v; saveSet(); rerender(); break;
     case 'set-val': SET[d.k] = d.v; saveSet(); rerender(); break;
@@ -700,7 +797,7 @@ async function handle(a, el) {
     case 'cfg-apply': { try { applyConfigCode($('#cfg-code').value); toast('Configuration appliquée ✓'); rerender(); } catch (e) { toast(e.message); } break; }
     case 'secret-gen': SET.driveSecret = randomSecret(); saveSet(); rerender(); toast('Mot de passe généré'); break;
     case 'script-copy': if (!SET.driveSecret) { SET.driveSecret = randomSecret(); saveSet(); rerender(); } copyText(DRIVE_SCRIPT(SET.driveSecret)); break;
-    case 'gem-test': busy('Test de Gemini…'); try { const j = await gemini([{text:'Réponds {"ok":true}'}], {model:SET.modelRead, timeout:30000}); busy(); toast(j && j.ok ? 'Gemini fonctionne ✓ (' + GEM_LAST_MODEL + ')' : 'Réponse inattendue'); } catch (e) { busy(); toast(e.message); } break;
+    case 'gem-test': busy('Test de Gemini…'); try { const j = await gemini([{text:'Réponds {"ok":true}'}], {model:aiModel('read'), timeout:30000}); busy(); toast(j && j.ok ? 'Gemini fonctionne ✓ (' + GEM_LAST_MODEL + ')' : 'Réponse inattendue'); } catch (e) { busy(); toast(e.message); } break;
     case 'gem-models': busy('Chargement des modèles…'); try { S.models = await geminiModels(); busy(); rerender(); toast(S.models.length + ' modèles disponibles'); } catch (e) { busy(); toast(e.message); } break;
     case 'drive-test': busy('Test de Google Drive…'); try { const j = await driveCall({action:'ping'}, 30000); busy(); toast('Drive connecté ✓ ' + (j.rootName || '')); } catch (e) { busy(); toast(e.message); } break;
     case 'drive-all': { const list = CASES.filter(c => c.report); if (!list.length) return toast('Aucun rapport à envoyer'); busy('Envoi de ' + list.length + ' rapport(s)…'); for (const c of list) await sendDrive(c, true); busy(); toast('Envoi terminé'); rerender(); break; }
@@ -713,8 +810,8 @@ async function handle(a, el) {
       busy(); break;
     }
     case 'wipe': {
-      if (!(await confirmSheet('Tout effacer ?', 'Tous les cas, photos et réglages de cet appareil seront supprimés. Ton Drive n\'est pas touché.', 'Tout effacer', true))) return;
-      await DB.clear('cases'); await DB.clear('photos'); PHOTO_CACHE.clear(); CASES = []; localStorage.removeItem(ST_KEY); SET = clone(SET_DEFAULT); go('home'); toast('Données effacées'); break;
+      if (!(await confirmSheet('Tout effacer ?', 'Tous les cas et photos de cet appareil seront supprimés. Ton compte en ligne et ton Drive ne sont pas touchés.', 'Tout effacer', true))) return;
+      await DB.clear('cases'); await DB.clear('photos'); PHOTO_CACHE.clear(); CASES = []; ALL_CASES = []; go('home'); toast('Données de l\'appareil effacées (ton compte en ligne est conservé)'); break;
     }
   }
 }
@@ -799,17 +896,38 @@ function onBack() {
 }
 
 /* ---------- Démarrage ---------- */
+let ALL_CASES = [];
+async function onAuthChanged(forceCheck) {
+  if (forceCheck && FB && FB.auth.currentUser) {
+    // relancer la vérification d'accès après confirmation du courriel ou invitation
+    const u = FB.auth.currentUser, em = String(u.email).toLowerCase();
+    let ok = ADMINS.includes(em); if (!ok) { try { ok = (await FB.db.collection('allowed').doc(em).get()).exists; } catch (e) {} }
+    Object.assign(AUTH, ok ? {state:'in', user:u, admin:ADMINS.includes(em)} : {state:'denied', user:u});
+    if (ok) rememberMe(u);
+  }
+  if (AUTH.state === 'in' || AUTH.state === 'offline') {
+    const uid = AUTH.user.uid;
+    loadUserSettings(uid);
+    try { ALL_CASES = (await DB.all('cases')) || []; } catch (e) {}
+    for (const c of ALL_CASES) if (!c.owner) { c.owner = uid; DB.put('cases', c).catch(() => {}); }
+    CASES = ALL_CASES.filter(c => c.owner === uid);
+    const pend = sessionStorage.getItem('latence.cfg');
+    if (pend) { try { applyConfigCode(pend); toast('Configuration appliquée ✓'); } catch (e) {} sessionStorage.removeItem('latence.cfg'); }
+    render();
+    if (AUTH.state === 'in') { try { const r = await cloudSyncAll(); if (r.pulled) { render(); toast(r.pulled + ' cas synchronisé(s)'); } else rerender(); } catch (e) { console.warn('sync', e); } }
+    setTimeout(retryPending, 2000);
+  } else { CASES = []; cur = null; S.view = 'home'; SET_UID = null; SET = clone(SET_DEFAULT); render(); }
+}
 (async function init() {
   applyTheme();
-  try { await DB.open(); CASES = (await DB.all('cases')) || []; }
-  catch (e) { CASES = []; toast('Stockage local indisponible : ' + e.message); }
+  try { await DB.open(); } catch (e) { toast('Stockage local indisponible : ' + e.message); }
   if (/^#config=/.test(location.hash)) {
-    try { applyConfigCode(location.hash); toast('Configuration appliquée ✓ — Gemini et Drive sont prêts'); } catch (e) { toast(e.message); }
+    try { sessionStorage.setItem('latence.cfg', location.hash); } catch (e) {}
     history.replaceState(null, '', location.pathname + location.search);
   }
   render();
+  authStart(() => onAuthChanged(false));
   const P = CAP();
   if (P && P.App) P.App.addListener('backButton', () => { if (!onBack()) P.App.exitApp(); });
   if ('serviceWorker' in navigator && location.protocol === 'https:' && !P) navigator.serviceWorker.register('sw.js').catch(() => {});
-  setTimeout(retryPending, 3000);
 })();

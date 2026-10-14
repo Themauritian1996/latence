@@ -70,6 +70,8 @@ a{color:inherit}
 .hero-sub{margin:0 0 18px;color:var(--muted)}
 .h2{font-weight:400;font-size:26px;letter-spacing:-.01em;margin:10px 0 14px}
 .h3{font-weight:500;font-size:17px;margin:0 0 10px}
+.h3 svg,.sh-title svg{display:inline-block;vertical-align:-3px;margin-right:6px}
+summary svg.ic:first-child{display:inline-block;vertical-align:-4px;margin-right:8px}
 .muted{color:var(--muted)}
 .small{font-size:14px}
 small{font-size:13px;color:var(--muted);display:block}
@@ -311,8 +313,12 @@ code{background:var(--surface-2);padding:1px 6px;border-radius:6px;font-size:13p
 <div id="sheets"></div>
 <div id="busy"></div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore-compat.js"></script>
 <script src="js/data.js?v=dev"></script>
 <script src="js/core.js?v=dev"></script>
+<script src="js/cloud.js?v=dev"></script>
 <script src="js/drive-script.js?v=dev"></script>
 <script src="js/docx.js?v=dev"></script>
 <script src="js/app.js?v=dev"></script>

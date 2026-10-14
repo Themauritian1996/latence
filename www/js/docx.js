@@ -55,33 +55,34 @@ function wTable(head, rows, widths, opt) { opt = opt || {};
     (head ? tr(head, true, 'F2F2F2') : '') + rows.map(r => r.__group ? tr([{t:r.__group, span:widths.length, left:true, b:true, shade:'F5F5F5'}]) : tr(r)).join('') + '</w:tbl>' + wP('', {after:60});
 }
 
-function reportDocx(c) {
-  const ev = evaluate(c), p = c.patient, S = (c.report && c.report.sections) || {}, D = SET.doctor, age = ageAt(p.ddn, c.date);
+function reportDocx(c) { return withLang(reportLang(), () => _reportDocx(c)); }
+function _reportDocx(c) {
+  const ev = evaluate(c), p = c.patient, S = (c.report && c.report.sections) || {}, D = SET.doctor, age = ageAt(p.ddn, c.date), RT = repT();
   const pname = [p.nom ? p.nom.toUpperCase() : '', p.prenom].filter(Boolean).join(', ') || 'Patient';
   const RED = 'C62828';
   const col = st => (st === 'a' || st === 'd' || st === 'x') ? RED : null;
   const H = t => wP(wRun(t, {b:true, sz:20, caps:true, color:'333333'}), {before:240, after:80, border:true});
   let body = '';
-  body += wP(wRun('Rapport d\'électrodiagnostic (EMG / conductions nerveuses)', {b:true, sz:30}), {after:100});
+  body += wP(wRun(RT.title, {b:true, sz:30}), {after:100});
   body += wTable(null, [
-    [{t:'Patient : ', b:true, left:true}, {t:pname, left:true}, {t:'Date de l\'examen : ', b:true, left:true}, {t:fmtDateLong(c.date), left:true}],
-    [{t:'DDN : ', b:true, left:true}, {t:(p.ddn || '—') + (age != null ? ` (${age} ans)` : '') + (p.sexe ? ' · ' + p.sexe : ''), left:true}, {t:'No dossier : ', b:true, left:true}, {t:p.dossier || '—', left:true}],
-    [{t:'Référent : ', b:true, left:true}, {t:c.clin.referent || '—', left:true}, {t:'Examinateur : ', b:true, left:true}, {t:D.nom || '—', left:true}]
+    [{t:RT.patient + ' : ', b:true, left:true}, {t:pname, left:true}, {t:RT.date + ' : ', b:true, left:true}, {t:fmtDateLong(c.date), left:true}],
+    [{t:RT.dob + ' : ', b:true, left:true}, {t:(p.ddn || '—') + (age != null ? ` (${age} ${RT.yrs})` : '') + (p.sexe ? ' · ' + p.sexe : ''), left:true}, {t:RT.mrn + ' : ', b:true, left:true}, {t:p.dossier || '—', left:true}],
+    [{t:RT.ref + ' : ', b:true, left:true}, {t:c.clin.referent || '—', left:true}, {t:RT.exam + ' : ', b:true, left:true}, {t:D.nom || '—', left:true}]
   ], [1300, 3400, 1800, 3100], {sz:19});
   const sec = (t, inner) => { if (inner) body += H(t) + inner; };
-  sec('Renseignements cliniques', wText(S.renseignements || c.clin.motif));
-  sec('Technique', wText(S.technique));
+  sec(RT.s1, wText(S.renseignements || c.clin.motif));
+  sec(RT.s2, wText(S.technique));
   // Conductions
-  const order = [['motor', 'Conductions motrices'], ['sensory', 'Conductions sensitives'], ['mixed', 'Études mixtes'], ['F', 'Ondes F'], ['H', 'Réflexe H'], ['blink', 'Réflexe de clignement'], ['other', 'Autres']];
+  const order = EN() ? [['motor', 'Motor conduction'], ['sensory', 'Sensory conduction'], ['mixed', 'Mixed studies'], ['F', 'F waves'], ['H', 'H reflex'], ['blink', 'Blink reflex'], ['other', 'Other']] : [['motor', 'Conductions motrices'], ['sensory', 'Conductions sensitives'], ['mixed', 'Études mixtes'], ['F', 'Ondes F'], ['H', 'Réflexe H'], ['blink', 'Réflexe de clignement'], ['other', 'Autres']];
   const nrows = [];
   order.forEach(([t, l]) => {
     const rs = (c.ncs.rows || []).map((r, i) => [r, i]).filter(([r]) => r.type === t); if (!rs.length) return;
     nrows.push({__group:l});
     rs.forEach(([r, i]) => {
       const o = ev.cells[i], n = normOf(r.normKey);
-      const nm = n ? [n.lat != null ? 'lat ≤' + fmtN(n.lat) : '', n.amp != null ? 'amp ≥' + fmtN(n.amp) : '', n.cv != null ? 'VC ≥' + fmtN(n.cv, 0) : '', n.f != null ? 'F ≤' + fmtN(n.f, 0) : ''].filter(Boolean).join(' · ') : '';
+      const nm = n ? [n.lat != null ? 'lat ≤' + fmtN(n.lat) : '', n.amp != null ? 'amp ≥' + fmtN(n.amp) : '', n.cv != null ? (EN() ? 'CV ≥' : 'VC ≥') + fmtN(n.cv, 0) : '', n.f != null ? 'F ≤' + fmtN(n.f, 0) : ''].filter(Boolean).join(' · ') : '';
       const first = {t:shortName(r) + (siteName(r) ? ' — ' + siteName(r) : ''), left:true, sub: nm ? 'N : ' + nm : ''};
-      if (r.absent) nrows.push([first, {t:'Absente', color:RED, b:true}, '', '', '', '', '']);
+      if (r.absent) nrows.push([first, {t:EN() ? 'Absent' : 'Absente', color:RED, b:true}, '', '', '', '', '']);
       else nrows.push([first,
         {t:fmtL(rowLatency(r)), color:col(o.lat), b:!!col(o.lat), u:o.lat === 'd'},
         {t:r.amplitude == null ? '—' : fmtN(r.amplitude, 1), color:col(o.amp), b:!!col(o.amp)},
@@ -92,35 +93,35 @@ function reportDocx(c) {
     });
   });
   let ncs = '';
-  if (nrows.length) ncs += wTable(['Nerf — site', 'Lat. (ms)', 'Amp.', '', 'Dist. (cm)', 'VC (m/s)', 'F (ms)'].map((t, i) => ({t, align: i === 0 || i === 3 ? 'left' : 'right'})), nrows, [3600, 1050, 900, 450, 1050, 1050, 1000]) +
-    wP(wRun('En rouge : hors normes. Souligné : zone démyélinisante. Latence motrice = début ; sensitive = pic.', {sz:15, color:'666666'}), {after:100});
-  sec('Conductions nerveuses', ncs + wText(S.ncs_resume));
+  if (nrows.length) ncs += wTable([EN() ? 'Nerve — site' : 'Nerf — site', 'Lat. (ms)', 'Amp.', '', 'Dist. (cm)', EN() ? 'CV (m/s)' : 'VC (m/s)', 'F (ms)'].map((t, i) => ({t, align: i === 0 || i === 3 ? 'left' : 'right'})), nrows, [3600, 1050, 900, 450, 1050, 1050, 1000]) +
+    wP(wRun(EN() ? 'In red: outside normal limits. Underlined: demyelinating range. Motor latency = onset; sensory = peak.' : 'En rouge : hors normes. Souligné : zone démyélinisante. Latence motrice = début ; sensitive = pic.', {sz:15, color:'666666'}), {after:100});
+  sec(RT.s3, ncs + wText(S.ncs_resume));
   // EMG
   const em = (c.emg || []).filter(emgFilled);
   let emg = '';
   if (em.length) {
     const bad = (k, v) => (k === 'fib' || k === 'psw') ? (v && v !== '0') : k === 'fasc' ? v === '+' : k === 'ins' ? v === '↑' : (v && v !== 'N');
-    emg = wTable(['Muscle', 'Ins.', 'Fibs', 'PSW', 'Fasc.', 'Amp.', 'Durée', 'Poly.', 'Recrut.', 'Autre'].map((t, i) => ({t, align: i === 0 || i === 9 ? 'left' : 'center'})),
-      em.map(e => [{t:e.muscle + ' ' + e.cote, left:true, sub:[e.nerf, e.rac].filter(Boolean).join(' · ')},
+    emg = wTable(['Muscle', 'Ins.', 'Fibs', 'PSW', 'Fasc.', 'Amp.', EN() ? 'Dur.' : 'Durée', 'Poly.', EN() ? 'Recruit.' : 'Recrut.', EN() ? 'Other' : 'Autre'].map((t, i) => ({t, align: i === 0 || i === 9 ? 'left' : 'center'})),
+      em.map(e => [{t:muscleName(e.muscle) + ' ' + sideLbl(e.cote), left:true, sub:[e.nerf, e.rac].filter(Boolean).join(' · ')},
         ...['ins', 'fib', 'psw', 'fasc', 'amp', 'dur', 'poly', 'rec'].map(k => ({t:e[k] || '—', align:'center', color: bad(k, e[k]) ? RED : null, b: bad(k, e[k])})),
         {t:[...(e.autre || []), e.note].filter(Boolean).join(' · '), left:true}]),
       [2700, 600, 650, 650, 650, 650, 700, 650, 900, 1450]);
   }
-  sec('EMG à l\'aiguille', emg + wText(S.emg_resume));
-  sec('Interprétation', wText(S.interpretation));
-  sec('Conclusion', String(S.conclusion || '').split(/\n+/).map(x => x.trim()).filter(Boolean).map(x => wP(wRun(x, {b:/^\d+\./.test(x) && x.length < 140}))).join(''));
-  sec('Recommandations', String(S.recommandations || '').split(/\n+/).map(x => x.trim()).filter(Boolean).map(x => wP(wRun(x))).join(''));
+  sec(RT.s4, emg + wText(S.emg_resume));
+  sec(RT.s5, wText(S.interpretation));
+  sec(RT.s6, String(S.conclusion || '').split(/\n+/).map(x => x.trim()).filter(Boolean).map(x => wP(wRun(x, {b:/^\d+\./.test(x) && x.length < 140}))).join(''));
+  sec(RT.s7, String(S.recommandations || '').split(/\n+/).map(x => x.trim()).filter(Boolean).map(x => wP(wRun(x))).join(''));
   const sig = [D.nom, D.titre, D.etab, D.coord].filter(Boolean).join('\n');
   if (sig) body += wP('', {after:200}) + wP(wRun(sig));
-  body += wP(wRun('Rapport préparé avec l\'assistance de Latence (IA Gemini), révisé et validé par le médecin signataire. Normes de référence : laboratoire / Preston & Shapiro (adulte).', {sz:14, color:'888888'}), {before:200});
+  body += wP(wRun(RT.disc, {sz:14, color:'888888'}), {before:200});
 
   const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
   const doc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${NS}><w:body>${body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1000" w:right="1080" w:bottom="1000" w:left="1080" w:header="500" w:footer="500" w:gutter="0"/></w:sectPr></w:body></w:document>`;
-  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles ${NS}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Calibri" w:cs="Calibri"/><w:sz w:val="21"/><w:szCs w:val="21"/><w:lang w:val="fr-CA"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="100" w:line="264" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style></w:styles>`;
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles ${NS}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Calibri" w:cs="Calibri"/><w:sz w:val="21"/><w:szCs w:val="21"/><w:lang w:val="${EN() ? 'en-CA' : 'fr-CA'}"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="100" w:line="264" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style></w:styles>`;
   const files = [
     {name:'[Content_Types].xml', data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>'},
     {name:'_rels/.rels', data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>'},
-    {name:'docProps/core.xml', data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${X('Rapport EMG — ' + pname + ' — ' + c.date)}</dc:title><dc:creator>${X(D.nom || 'Latence')}</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}</dcterms:created></cp:coreProperties>`},
+    {name:'docProps/core.xml', data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${X((EN() ? 'EMG report — ' : 'Rapport EMG — ') + pname + ' — ' + c.date)}</dc:title><dc:creator>${X(D.nom || 'Latence')}</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}</dcterms:created></cp:coreProperties>`},
     {name:'word/_rels/document.xml.rels', data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'},
     {name:'word/document.xml', data:doc},
     {name:'word/styles.xml', data:styles}

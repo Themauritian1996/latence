@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex">
+<title>Latence, connexion Google</title>
+<style>
+:root{--bg:#000;--surface:#121214;--text:#f4f4f5;--muted:#8b8b93;--acc:#30d158;--neg:#ff453a}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:grid;place-items:center;padding:24px}
+.box{max-width:380px;width:100%;text-align:center}
+h1{font-weight:300;font-size:34px;margin:14px 0 6px}
+p{color:var(--muted);line-height:1.45;margin:0 0 20px}
+.btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:54px;border-radius:999px;border:0;font-size:16px;font-weight:600;cursor:pointer;text-decoration:none;margin:0 0 12px}
+.g{background:#fff;color:#111}
+.back{background:var(--acc);color:#000}
+.err{color:var(--neg)}
+.ok{color:var(--acc)}
+</style>
+</head>
+<body>
+<div class="box">
+  <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#30d158" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 13h5l2-6 3 12 2.5-9 1.5 3h6"/></svg>
+  <h1>Latence</h1>
+  <p id="msg">Connecte ton compte Google pour l'application Android (connexion et Google Drive).</p>
+  <button class="btn g" id="go"><svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg> Continuer avec Google</button>
+  <a class="btn back" id="back" hidden>Retourner à Latence</a>
+</div>
+<script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-auth-compat.js"></script>
+<script>
+'use strict';
+const EN = /^en/i.test(new URLSearchParams(location.search).get('lang') || navigator.language);
+const T = EN ? {intro:'Connect your Google account for the Android app (sign-in and Google Drive).', go:'Continue with Google', back:'Return to Latence', done:'Connected ✓ Tap the button to return to the app.', fail:'Connection failed: '} :
+  {intro:'Connecte ton compte Google pour l\'application Android (connexion et Google Drive).', go:'Continuer avec Google', back:'Retourner à Latence', done:'Connecté ✓ Touche le bouton pour revenir dans l\'application.', fail:'Connexion impossible : '};
+document.getElementById('msg').textContent = T.intro;
+document.getElementById('go').lastChild.textContent = ' ' + T.go;
+document.getElementById('back').textContent = T.back;
+firebase.initializeApp({apiKey:'AIzaSyBTs75atDy7pNGxNMxm0RYUubjdJFsxvU8', authDomain:'gen-lang-client-0692623180.firebaseapp.com', projectId:'gen-lang-client-0692623180', appId:'1:911113359259:web:ea61f4c3593491b0669b3e'});
+const auth = firebase.auth(); auth.languageCode = EN ? 'en' : 'fr';
+const prov = new firebase.auth.GoogleAuthProvider();
+prov.addScope('https://www.googleapis.com/auth/drive.file');
+prov.setCustomParameters({prompt:'select_account'});
+function done(res) {
+  const c = res && res.credential;
+  if (!c || !c.accessToken) throw new Error('jeton manquant');
+  const q = new URLSearchParams({at:c.accessToken, it:c.idToken || '', exp:String(Date.now() + 55 * 60 * 1000), em:(res.user && res.user.email) || ''});
+  const url = 'intent://auth?' + q.toString() + '#Intent;scheme=com.chris.latence;package=com.chris.latence;end';
+  const a = document.getElementById('back'); a.href = url; a.hidden = false;
+  document.getElementById('go').hidden = true;
+  const m = document.getElementById('msg'); m.textContent = T.done; m.className = 'ok';
+  try { location.href = url; } catch (e) {}
+}
+function fail(e) { const m = document.getElementById('msg'); m.textContent = T.fail + ((e && (e.code || e.message)) || e); m.className = 'err'; }
+auth.getRedirectResult().then(r => { if (r && r.credential) done(r); }).catch(fail);
+document.getElementById('go').addEventListener('click', async () => {
+  try { done(await auth.signInWithPopup(prov)); }
+  catch (e) {
+    if (e && /popup-blocked|operation-not-supported|cancelled-popup/.test(e.code || '')) { try { await auth.signInWithRedirect(prov); } catch (x) { fail(x); } }
+    else fail(e);
+  }
+});
+</script>
+</body>
+</html>

@@ -3,7 +3,7 @@
    Latence — noyau : utilitaires, réglages, stockage, Gemini, normes,
    rapport, Google Drive
    ===================================================================== */
-const APP_VERSION = '2.0';
+const APP_VERSION = '2.1';
 const $ = (s, r) => (r || document).querySelector(s);
 const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const uid = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-6);
@@ -16,10 +16,10 @@ const CAP = () => (window.Capacitor && window.Capacitor.isNativePlatform && wind
 function iso(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
 const todayISO = () => iso(new Date());
 function parseISO(s) { const p = String(s).split('-').map(Number); return new Date(p[0], (p[1] || 1) - 1, p[2] || 1); }
-function fmtDate(ds) { return parseISO(ds).toLocaleDateString('fr-CA', {weekday:'short', day:'numeric', month:'short'}); }
-function fmtDateLong(ds) { return parseISO(ds).toLocaleDateString('fr-CA', {weekday:'long', day:'numeric', month:'long', year:'numeric'}); }
+function fmtDate(ds) { return parseISO(ds).toLocaleDateString(EN() ? 'en-CA' : 'fr-CA', {weekday:'short', day:'numeric', month:'short'}); }
+function fmtDateLong(ds) { return parseISO(ds).toLocaleDateString(EN() ? 'en-CA' : 'fr-CA', {weekday:'long', day:'numeric', month:'long', year:'numeric'}); }
 function fmtTime(ts) { const d = new Date(ts); return pad2(d.getHours()) + ' h ' + pad2(d.getMinutes()); }
-function fmtN(v, dec) { if (v === null || v === undefined || v === '') return '—'; const x = +v; if (!isFinite(x)) return '—'; return x.toLocaleString('fr-CA', {maximumFractionDigits: dec === undefined ? 1 : dec}); }
+function fmtN(v, dec) { if (v === null || v === undefined || v === '') return '—'; const x = +v; if (!isFinite(x)) return '—'; return x.toLocaleString(EN() ? 'en-CA' : 'fr-CA', {maximumFractionDigits: dec === undefined ? 1 : dec}); }
 function ageAt(ddn, date) {
   if (!ddn) return null; const b = parseISO(ddn), d = parseISO(date || todayISO());
   let a = d.getFullYear() - b.getFullYear(); if (d.getMonth() < b.getMonth() || (d.getMonth() === b.getMonth() && d.getDate() < b.getDate())) a--;
@@ -224,16 +224,16 @@ const emgFilled = e => ['ins','fib','psw','amp','dur','rec'].some(k => e[k]);
    Moteur de normes — calcul déterministe des anomalies
    ===================================================================== */
 const SIDE = {G:'gauche', D:'droit', '?':''};
-const sideLbl = s => s === 'G' ? 'G' : s === 'D' ? 'D' : '';
+const sideLbl = s => s === 'G' ? (EN() ? 'L' : 'G') : s === 'D' ? (EN() ? 'R' : 'D') : '';
 function rowLatency(r) { return (r.type === 'sensory' || r.type === 'mixed') ? (r.latence_pic != null ? r.latence_pic : r.latence) : (r.latence != null ? r.latence : r.latence_pic); }
 const SHORT = {median_m_apb:'Médian (APB)', ulnar_m_adm:'Ulnaire (ADM)', ulnar_m_fdi:'Ulnaire (FDI)', radial_m_eip:'Radial (EIP)', peroneal_m_edb:'Fibulaire (EDB)', peroneal_m_ta:'Fibulaire (TA)', tibial_m_ahb:'Tibial (AHB)',
   median_s_d2:'Médian sens. D2', ulnar_s_d5:'Ulnaire sens. D5', radial_s:'Radial sens.', dorsal_ulnar_cut:'Cutané dors. ulnaire', lat_antebrachial:'CAB latéral', med_antebrachial:'CAB médial', sural:'Sural', superficial_peroneal:'Fibulaire superf.', saphenous:'Saphène',
   median_palm:'Médian palmaire', ulnar_palm:'Ulnaire palmaire', median_ring:'Médian D4', ulnar_ring:'Ulnaire D4', median_thumb:'Médian pouce', radial_thumb:'Radial pouce', median_lumbrical:'Médian lombrical', ulnar_interosseous:'Ulnaire interosseux',
   h_soleus:'Réflexe H', blink_r1:'Clignement R1', blink_r2i:'Clignement R2 ipsi', blink_r2c:'Clignement R2 contro'};
-function shortName(r) { return (SHORT[r.normKey] || r.nerf || 'Nerf') + (r.cote && r.cote !== '?' ? ' ' + sideLbl(r.cote) : ''); }
-function fmtL(v) { if (v === null || v === undefined || v === '' || !isFinite(+v)) return '—'; return (+v).toLocaleString('fr-CA', {minimumFractionDigits:1, maximumFractionDigits:2}); }
-function rowName(r) { const n = normOf(r.normKey); return (n ? n.label : (r.nerf || 'Nerf')) + (r.cote && r.cote !== '?' ? ' ' + sideLbl(r.cote) : ''); }
-function siteName(r) { return r.stimulation || ({distal:'distal','avant-bras':'avant-bras','trans-coude':'au-dessus du coude',bras:'bras',aisselle:'aisselle',erb:'Erb',jambe:'tête fibulaire (sous)','trans-tete-fibulaire':'tête fibulaire (dessus)','creux-poplite':'creux poplité'}[r.segment] || ''); }
+function shortName(r) { return ((EN() ? SHORT_EN[r.normKey] : SHORT[r.normKey]) || r.nerf || (EN() ? 'Nerve' : 'Nerf')) + (r.cote && r.cote !== '?' ? ' ' + sideLbl(r.cote) : ''); }
+function fmtL(v) { if (v === null || v === undefined || v === '' || !isFinite(+v)) return '—'; return (+v).toLocaleString(EN() ? 'en-CA' : 'fr-CA', {minimumFractionDigits:1, maximumFractionDigits:2}); }
+function rowName(r) { const n = normOf(r.normKey); return (n ? normLabel(n) : (r.nerf || (EN() ? 'Nerve' : 'Nerf'))) + (r.cote && r.cote !== '?' ? ' ' + sideLbl(r.cote) : ''); }
+function siteName(r) { return r.stimulation || ((EN() ? SEG_EN : {distal:'distal','avant-bras':'avant-bras','trans-coude':'au-dessus du coude',bras:'bras',aisselle:'aisselle',erb:'Erb',jambe:'tête fibulaire (sous)','trans-tete-fibulaire':'tête fibulaire (dessus)','creux-poplite':'creux poplité'})[r.segment] || ''); }
 
 function evaluate(c) {
   const R = RULES(), rows = (c.ncs && c.ncs.rows) || [], out = rows.map(() => ({lat:'z', amp:'z', cv:'z', f:'z'})), F = [];
@@ -252,7 +252,7 @@ function evaluate(c) {
     const di = idx.find(i => rows[i].segment === 'distal') ?? idx[0];
     idx.forEach(i => {
       const r = rows[i], o = out[i];
-      if (r.absent) { o.lat = o.amp = o.cv = 'x'; if (i === di || !isMotor) add('a', `${name} : réponse absente${isMotor && r.stimulation ? ' (stimulation ' + r.stimulation + ')' : ''}.`); return; }
+      if (r.absent) { o.lat = o.amp = o.cv = 'x'; if (i === di || !isMotor) add('a', EN() ? `${name}: absent response${isMotor && r.stimulation ? ' (stimulation ' + r.stimulation + ')' : ''}.` : `${name} : réponse absente${isMotor && r.stimulation ? ' (stimulation ' + r.stimulation + ')' : ''}.`); return; }
       if (!n) return;
       const lat = rowLatency(r);
       // Latence : seulement distale pour le moteur
@@ -260,12 +260,12 @@ function evaluate(c) {
         if (lat > n.lat) {
           const demy = (r.type === 'motor') && lat > n.lat * R.demyLat / 100;
           o.lat = demy ? 'd' : 'a';
-          add('a', `${name} : latence ${isMotor ? 'distale' : 'au pic'} allongée à ${fmtN(lat, 2)} ms (N ≤ ${fmtN(n.lat, 1)})${demy ? ' — zone démyélinisante (> ' + R.demyLat + ' % LSN)' : ''}.`);
+          add('a', EN() ? `${name}: prolonged ${isMotor ? 'distal' : 'peak'} latency ${fmtN(lat, 2)} ms (N ≤ ${fmtN(n.lat, 1)})${demy ? ' — demyelinating range (> ' + R.demyLat + '% ULN)' : ''}.` : `${name} : latence ${isMotor ? 'distale' : 'au pic'} allongée à ${fmtN(lat, 2)} ms (N ≤ ${fmtN(n.lat, 1)})${demy ? ' — zone démyélinisante (> ' + R.demyLat + ' % LSN)' : ''}.`);
         } else o.lat = 'n';
       }
       // Amplitude : distale (moteur) ou unique (sensitif)
       if (n.amp != null && r.amplitude != null && (!isMotor || i === di)) {
-        if (r.amplitude < n.amp) { o.amp = 'a'; add('a', `${name} : amplitude ${isMotor ? 'PAMC (CMAP)' : 'PANS (SNAP)'} diminuée à ${fmtN(r.amplitude, 1)} ${isMotor ? 'mV' : 'µV'} (N ≥ ${fmtN(n.amp, 1)}).`); }
+        if (r.amplitude < n.amp) { o.amp = 'a'; add('a', EN() ? `${name}: reduced ${isMotor ? 'CMAP' : 'SNAP'} amplitude ${fmtN(r.amplitude, 1)} ${isMotor ? 'mV' : 'µV'} (N ≥ ${fmtN(n.amp, 1)}).` : `${name} : amplitude ${isMotor ? 'PAMC (CMAP)' : 'PANS (SNAP)'} diminuée à ${fmtN(r.amplitude, 1)} ${isMotor ? 'mV' : 'µV'} (N ≥ ${fmtN(n.amp, 1)}).`); }
         else o.amp = 'n';
       }
       // Vitesse
@@ -275,13 +275,13 @@ function evaluate(c) {
         if (lln != null) {
           if (r.vitesse < lln) {
             const demy = r.vitesse < lln * R.demyCv / 100; o.cv = demy ? 'd' : 'a';
-            add('a', `${name} : vitesse de conduction ralentie à ${fmtN(r.vitesse, 0)} m/s${isMotor && siteName(r) ? ' (segment ' + siteName(r) + ')' : ''} (N ≥ ${fmtN(lln, 0)})${demy ? ' — zone démyélinisante (< ' + R.demyCv + ' % LIN)' : ''}.`);
+            add('a', EN() ? `${name}: slowed conduction velocity ${fmtN(r.vitesse, 0)} m/s${isMotor && siteName(r) ? ' (segment ' + siteName(r) + ')' : ''} (N ≥ ${fmtN(lln, 0)})${demy ? ' — demyelinating range (< ' + R.demyCv + '% LLN)' : ''}.` : `${name} : vitesse de conduction ralentie à ${fmtN(r.vitesse, 0)} m/s${isMotor && siteName(r) ? ' (segment ' + siteName(r) + ')' : ''} (N ≥ ${fmtN(lln, 0)})${demy ? ' — zone démyélinisante (< ' + R.demyCv + ' % LIN)' : ''}.`);
           } else o.cv = 'n';
         }
       }
       // Onde F
       if (r.f_lat != null && n.f != null) {
-        if (r.f_lat > n.f) { const demy = r.f_lat > n.f * R.demyLat / 100; o.f = demy ? 'd' : 'a'; add('a', `${name} : latence de l'onde F allongée à ${fmtN(r.f_lat, 1)} ms (N ≤ ${fmtN(n.f, 0)}${c.patient.taille ? ', taille ' + c.patient.taille + ' cm' : ''}).`); }
+        if (r.f_lat > n.f) { const demy = r.f_lat > n.f * R.demyLat / 100; o.f = demy ? 'd' : 'a'; add('a', EN() ? `${name}: prolonged F-wave latency ${fmtN(r.f_lat, 1)} ms (N ≤ ${fmtN(n.f, 0)}${c.patient.taille ? ', height ' + c.patient.taille + ' cm' : ''}).` : `${name} : latence de l'onde F allongée à ${fmtN(r.f_lat, 1)} ms (N ≤ ${fmtN(n.f, 0)}${c.patient.taille ? ', taille ' + c.patient.taille + ' cm' : ''}).`); }
         else o.f = 'n';
       }
     });
@@ -295,10 +295,10 @@ function evaluate(c) {
           const drop = (prev.amplitude - r.amplitude) / prev.amplitude * 100;
           const tib = (r0.normKey || '').startsWith('tibial');
           if (drop > R.blockDrop) {
-            add(tib ? 'w' : 'a', `${name} : chute d'amplitude de ${fmtN(drop, 0)} % entre ${siteName(prev) || 'distal'} et ${siteName(r) || 'proximal'}${tib ? ' — fréquente au creux poplité (technique) ; interpréter avec prudence' : ' — bloc de conduction probable (vérifier la dispersion temporelle)'}.`);
+            add(tib ? 'w' : 'a', EN() ? `${name}: ${fmtN(drop, 0)}% amplitude drop between ${siteName(prev) || 'distal'} and ${siteName(r) || 'proximal'}${tib ? ' — common at the popliteal fossa (technical); interpret with caution' : ' — probable conduction block (check temporal dispersion)'}.` : `${name} : chute d'amplitude de ${fmtN(drop, 0)} % entre ${siteName(prev) || 'distal'} et ${siteName(r) || 'proximal'}${tib ? ' — fréquente au creux poplité (technique) ; interpréter avec prudence' : ' — bloc de conduction probable (vérifier la dispersion temporelle)'}.`);
             out[i].amp = tib ? 'z' : 'a';
           } else if (drop > R.blockPossible && !tib) {
-            add('w', `${name} : chute d'amplitude de ${fmtN(drop, 0)} % entre ${siteName(prev) || 'distal'} et ${siteName(r) || 'proximal'} (bloc partiel possible).`);
+            add('w', EN() ? `${name}: ${fmtN(drop, 0)}% amplitude drop between ${siteName(prev) || 'distal'} and ${siteName(r) || 'proximal'} (possible partial block).` : `${name} : chute d'amplitude de ${fmtN(drop, 0)} % entre ${siteName(prev) || 'distal'} et ${siteName(r) || 'proximal'} (bloc partiel possible).`);
           }
           prev = r;
         });
@@ -306,11 +306,11 @@ function evaluate(c) {
         const fore = idx.map(i => rows[i]).find(r => r.segment === 'avant-bras' && r.vitesse != null);
         const elb = idx.map(i => rows[i]).find(r => r.segment === 'trans-coude' && r.vitesse != null);
         if ((r0.normKey || '').startsWith('ulnar_m') && fore && elb && fore.vitesse - elb.vitesse > R.focalDrop)
-          add('a', `${name} : ralentissement focal au coude (${fmtN(elb.vitesse, 0)} vs ${fmtN(fore.vitesse, 0)} m/s à l'avant-bras, Δ > ${R.focalDrop} m/s).`);
+          add('a', EN() ? `${name}: focal slowing across the elbow (${fmtN(elb.vitesse, 0)} vs ${fmtN(fore.vitesse, 0)} m/s in the forearm, Δ > ${R.focalDrop} m/s).` : `${name} : ralentissement focal au coude (${fmtN(elb.vitesse, 0)} vs ${fmtN(fore.vitesse, 0)} m/s à l'avant-bras, Δ > ${R.focalDrop} m/s).`);
         const leg = idx.map(i => rows[i]).find(r => r.segment === 'jambe' && r.vitesse != null);
         const fh = idx.map(i => rows[i]).find(r => r.segment === 'trans-tete-fibulaire' && r.vitesse != null);
         if ((r0.normKey || '').startsWith('peroneal_m') && leg && fh && leg.vitesse - fh.vitesse > R.focalDrop)
-          add('a', `${name} : ralentissement focal à la tête fibulaire (${fmtN(fh.vitesse, 0)} vs ${fmtN(leg.vitesse, 0)} m/s à la jambe, Δ > ${R.focalDrop} m/s).`);
+          add('a', EN() ? `${name}: focal slowing across the fibular head (${fmtN(fh.vitesse, 0)} vs ${fmtN(leg.vitesse, 0)} m/s in the leg, Δ > ${R.focalDrop} m/s).` : `${name} : ralentissement focal à la tête fibulaire (${fmtN(fh.vitesse, 0)} vs ${fmtN(leg.vitesse, 0)} m/s à la jambe, Δ > ${R.focalDrop} m/s).`);
       }
     }
   });
@@ -320,7 +320,7 @@ function evaluate(c) {
   rows.forEach((r, i) => { if (!r.normKey || r.normKey === 'autre' || r.absent || r.amplitude == null) return; if (r.type === 'motor' && r.segment && r.segment !== 'distal') return; (byKey[r.normKey] = byKey[r.normKey] || {})[r.cote] = r; });
   Object.entries(byKey).forEach(([k, s]) => {
     if (s.G && s.D) { const lo = Math.min(s.G.amplitude, s.D.amplitude), hi = Math.max(s.G.amplitude, s.D.amplitude);
-      if (hi > 0 && (hi - lo) / hi * 100 > R.sideAmp) add('w', `${normOf(k) ? normOf(k).label : k} : asymétrie d'amplitude de ${fmtN((hi - lo) / hi * 100, 0)} % (${lo === s.G.amplitude ? 'G' : 'D'} plus bas).`); }
+      if (hi > 0 && (hi - lo) / hi * 100 > R.sideAmp) add('w', EN() ? `${normOf(k) ? normLabel(normOf(k)) : k}: ${fmtN((hi - lo) / hi * 100, 0)}% side-to-side amplitude asymmetry (${lo === s.G.amplitude ? 'L' : 'R'} lower).` : `${normOf(k) ? normOf(k).label : k} : asymétrie d'amplitude de ${fmtN((hi - lo) / hi * 100, 0)} % (${lo === s.G.amplitude ? 'G' : 'D'} plus bas).`); }
   });
 
   // Études comparatives
@@ -331,24 +331,24 @@ function evaluate(c) {
       const a = latOf(cp.a, side), b = latOf(cp.b, side); if (a == null || b == null) return;
       const d = +(a - b).toFixed(2);
       if (['palm', 'ring', 'thumb'].includes(cp.id)) { csi += d; csiN++; }
-      add(d >= cp.thr ? 'a' : 'n', `${cp.label}${side !== '?' ? ' ' + side : ''} : différence ${fmtN(d, 2)} ms (anormal si ≥ ${fmtN(cp.thr, 1)}).`);
+      add(d >= cp.thr ? 'a' : 'n', EN() ? `${COMP_EN[cp.id] || cp.label}${side !== '?' ? ' ' + sideLbl(side) : ''}: difference ${fmtN(d, 2)} ms (abnormal if ≥ ${fmtN(cp.thr, 1)}).` : `${cp.label}${side !== '?' ? ' ' + side : ''} : différence ${fmtN(d, 2)} ms (anormal si ≥ ${fmtN(cp.thr, 1)}).`);
     });
-    if (csiN === 3) add(csi >= CSI_THR ? 'a' : 'n', `Index sensitif combiné (CSI)${side !== '?' ? ' ' + side : ''} : ${fmtN(csi, 2)} ms (anormal si ≥ ${fmtN(CSI_THR, 1)}).`);
+    if (csiN === 3) add(csi >= CSI_THR ? 'a' : 'n', EN() ? `Combined sensory index (CSI)${side !== '?' ? ' ' + sideLbl(side) : ''}: ${fmtN(csi, 2)} ms (abnormal if ≥ ${fmtN(CSI_THR, 1)}).` : `Index sensitif combiné (CSI)${side !== '?' ? ' ' + side : ''} : ${fmtN(csi, 2)} ms (anormal si ≥ ${fmtN(CSI_THR, 1)}).`);
   });
 
   // Réflexe H — asymétrie
   const hG = latOf('h_soleus', 'G'), hD = latOf('h_soleus', 'D');
-  if (hG != null && hD != null && Math.abs(hG - hD) > R.hSide) add('a', `Réflexe H : asymétrie de ${fmtN(Math.abs(hG - hD), 1)} ms (anormal si > ${R.hSide}).`);
+  if (hG != null && hD != null && Math.abs(hG - hD) > R.hSide) add('a', EN() ? `H reflex: ${fmtN(Math.abs(hG - hD), 1)} ms side-to-side asymmetry (abnormal if > ${R.hSide}).` : `Réflexe H : asymétrie de ${fmtN(Math.abs(hG - hD), 1)} ms (anormal si > ${R.hSide}).`);
 
   // Contexte technique
   const tM = num(c.ncs.tMain != null ? c.ncs.tMain : c.clin.tMain), tP = num(c.ncs.tPied != null ? c.ncs.tPied : c.clin.tPied);
-  if (tM != null && tM < R.tempHand) add('w', `Température de la main ${fmtN(tM, 1)} °C (< ${R.tempHand} °C) : latences possiblement allongées et vitesses ralenties.`);
-  if (tP != null && tP < R.tempFoot) add('w', `Température du pied ${fmtN(tP, 1)} °C (< ${R.tempFoot} °C) : latences possiblement allongées et vitesses ralenties.`);
-  if (age != null && age < 18) add('w', `Patient de ${age} ans : les normes intégrées sont adultes — utiliser des normes pédiatriques.`);
+  if (tM != null && tM < R.tempHand) add('w', EN() ? `Hand temperature ${fmtN(tM, 1)} °C (< ${R.tempHand} °C): latencies may be prolonged and velocities slowed.` : `Température de la main ${fmtN(tM, 1)} °C (< ${R.tempHand} °C) : latences possiblement allongées et vitesses ralenties.`);
+  if (tP != null && tP < R.tempFoot) add('w', EN() ? `Foot temperature ${fmtN(tP, 1)} °C (< ${R.tempFoot} °C): latencies may be prolonged and velocities slowed.` : `Température du pied ${fmtN(tP, 1)} °C (< ${R.tempFoot} °C) : latences possiblement allongées et vitesses ralenties.`);
+  if (age != null && age < 18) add('w', EN() ? `Patient aged ${age}: built-in norms are for adults — use pediatric norms.` : `Patient de ${age} ans : les normes intégrées sont adultes — utiliser des normes pédiatriques.`);
   if (age != null && age >= 70 && rows.some(r => ['sural', 'superficial_peroneal'].includes(r.normKey) && (r.absent || (r.amplitude != null && normOf(r.normKey) && r.amplitude < normOf(r.normKey).amp))))
-    add('w', `Patient de ${age} ans : PANS sural/fibulaire superficiel bas ou absents peuvent être non spécifiques à cet âge.`);
+    add('w', EN() ? `Patient aged ${age}: low or absent sural/superficial peroneal SNAPs may be non-specific at this age.` : `Patient de ${age} ans : PANS sural/fibulaire superficiel bas ou absents peuvent être non spécifiques à cet âge.`);
   const unknown = rows.filter(r => !normOf(r.normKey) && r.type !== 'other');
-  if (unknown.length) add('w', `${unknown.length} étude(s) sans norme intégrée (${[...new Set(unknown.map(r => r.nerf))].slice(0, 4).join(', ')}) : interprétée(s) par Gemini seulement.`);
+  if (unknown.length) add('w', EN() ? `${unknown.length} study(ies) without built-in norms (${[...new Set(unknown.map(r => r.nerf))].slice(0, 4).join(', ')}): interpreted by Gemini only.` : `${unknown.length} étude(s) sans norme intégrée (${[...new Set(unknown.map(r => r.nerf))].slice(0, 4).join(', ')}) : interprétée(s) par Gemini seulement.`);
   return {cells: out, findings: F, age};
 }
 
@@ -394,79 +394,81 @@ table.t{border-collapse:collapse;width:100%;font-size:11px;margin:4px 0}table.t 
 table.t th:first-child,table.t td:first-child{text-align:left}table.t th{color:#444}.a,.d,.x{color:#c62828;font-weight:bold}.d{text-decoration:underline}
 .nm{display:block;font-size:9.5px;color:#777}p{margin:0 0 7px}.sig{margin-top:22px}.disc{margin-top:14px;font-size:9.5px;color:#777}.leg{font-size:9.5px;color:#666}`;
 
-function reportParts(c) {
-  const ev = evaluate(c), p = c.patient, S = (c.report && c.report.sections) || {}, D = SET.doctor;
+function reportParts(c) { return withLang(reportLang(), () => _reportParts(c)); }
+function _reportParts(c) {
+  const ev = evaluate(c), p = c.patient, S = (c.report && c.report.sections) || {}, D = SET.doctor, RT = repT();
   const age = ageAt(p.ddn, c.date);
   const pname = [p.nom ? p.nom.toUpperCase() : '', p.prenom].filter(Boolean).join(', ') || 'Patient';
   const cellCls = v => v === 'a' ? 'a' : v === 'd' ? 'd' : v === 'x' ? 'x' : '';
   const cellv = (v, dec, cls) => `<td class="${cellCls(cls)}">${v == null ? '—' : fmtN(v, dec)}</td>`;
   // Tableau NCS
-  const groupsOrder = [['motor', 'Conductions motrices'], ['sensory', 'Conductions sensitives'], ['mixed', 'Études mixtes'], ['F', 'Ondes F'], ['H', 'Réflexe H'], ['blink', 'Réflexe de clignement'], ['other', 'Autres']];
+  const groupsOrder = EN() ? [['motor', 'Motor conduction'], ['sensory', 'Sensory conduction'], ['mixed', 'Mixed studies'], ['F', 'F waves'], ['H', 'H reflex'], ['blink', 'Blink reflex'], ['other', 'Other']] : [['motor', 'Conductions motrices'], ['sensory', 'Conductions sensitives'], ['mixed', 'Études mixtes'], ['F', 'Ondes F'], ['H', 'Réflexe H'], ['blink', 'Réflexe de clignement'], ['other', 'Autres']];
   let ncs = '';
   groupsOrder.forEach(([t, lbl]) => {
     const rs = (c.ncs.rows || []).map((r, i) => [r, i]).filter(([r]) => r.type === t); if (!rs.length) return;
     ncs += `<tr><td colspan="7" style="font-weight:bold;background:#f3f3f3">${lbl}</td></tr>`;
     rs.forEach(([r, i]) => {
       const o = ev.cells[i], n = normOf(r.normKey);
-      const nm = n ? [n.lat != null ? 'lat ≤' + fmtN(n.lat) : '', n.amp != null ? 'amp ≥' + fmtN(n.amp) : '', n.cv != null ? 'VC ≥' + fmtN(n.cv, 0) : '', n.f != null ? 'F ≤' + fmtN(n.f, 0) : ''].filter(Boolean).join(' · ') : '';
+      const nm = n ? [n.lat != null ? 'lat ≤' + fmtN(n.lat) : '', n.amp != null ? 'amp ≥' + fmtN(n.amp) : '', n.cv != null ? (EN() ? 'CV ≥' : 'VC ≥') + fmtN(n.cv, 0) : '', n.f != null ? 'F ≤' + fmtN(n.f, 0) : ''].filter(Boolean).join(' · ') : '';
       ncs += `<tr><td>${esc(shortName(r))}${siteName(r) ? ' — ' + esc(siteName(r)) : ''}${nm ? '<span class="nm">N : ' + nm + '</span>' : ''}</td>` +
-        (r.absent ? `<td class="x" colspan="5">Absente</td>` :
+        (r.absent ? `<td class="x" colspan="5">${EN() ? 'Absent' : 'Absente'}</td>` :
         `<td class="${cellCls(o.lat)}">${fmtL(rowLatency(r))}</td>` + cellv(r.amplitude, 1, o.amp) + `<td>${r.amplitude == null ? '' : (r.type === 'motor' ? 'mV' : 'µV')}</td>` + cellv(r.distance, 1) + cellv(r.vitesse, 0, o.cv)) + `<td class="${cellCls(o.f)}">${r.f_lat == null ? '—' : fmtL(r.f_lat)}</td></tr>`;
     });
   });
-  const ncsTable = ncs ? `<div class="rep-tbl"><table class="t"><thead><tr><th>Nerf — site</th><th>Lat. (ms)</th><th>Amp.</th><th></th><th>Dist. (cm)</th><th>VC (m/s)</th><th>F (ms)</th></tr></thead><tbody>${ncs}</tbody></table></div><div class="leg">En rouge : hors normes. Latence motrice = début ; sensitive = pic.${ev.findings.some(f => f.txt.includes('démyélinisante')) ? ' Souligné : zone démyélinisante.' : ''}</div>` : '';
+  const ncsTable = ncs ? `<div class="rep-tbl"><table class="t"><thead><tr><th>${EN() ? 'Nerve — site' : 'Nerf — site'}</th><th>Lat. (ms)</th><th>Amp.</th><th></th><th>Dist. (cm)</th><th>${EN() ? 'CV (m/s)' : 'VC (m/s)'}</th><th>F (ms)</th></tr></thead><tbody>${ncs}</tbody></table></div><div class="leg">${EN() ? 'In red: outside normal limits. Motor latency = onset; sensory = peak.' : 'En rouge : hors normes. Latence motrice = début ; sensitive = pic.'}${ev.cells.some(o => o.lat === 'd' || o.cv === 'd' || o.f === 'd') ? (EN() ? ' Underlined: demyelinating range.' : ' Souligné : zone démyélinisante.') : ''}</div>` : '';
   // Tableau EMG
   const em = (c.emg || []).filter(emgFilled);
-  const emgTable = em.length ? `<div class="rep-tbl"><table class="t"><thead><tr><th>Muscle</th><th>Ins.</th><th>Fibs</th><th>PSW</th><th>Fasc.</th><th>Amp.</th><th>Durée</th><th>Poly.</th><th>Recrut.</th><th>Autre</th></tr></thead><tbody>${em.map(e => {
+  const emgTable = em.length ? `<div class="rep-tbl"><table class="t"><thead><tr><th>Muscle</th><th>Ins.</th><th>Fibs</th><th>PSW</th><th>Fasc.</th><th>Amp.</th><th>${EN() ? 'Dur.' : 'Durée'}</th><th>Poly.</th><th>${EN() ? 'Recruit.' : 'Recrut.'}</th><th>${EN() ? 'Other' : 'Autre'}</th></tr></thead><tbody>${em.map(e => {
     const bad = (k, v) => (k === 'fib' || k === 'psw') ? (v && v !== '0') : k === 'fasc' ? v === '+' : k === 'ins' ? v === '↑' : (v && v !== 'N');
-    return `<tr><td>${esc(e.muscle)} ${esc(e.cote)}<span class="nm">${esc([e.nerf, e.rac].filter(Boolean).join(' · '))}</span></td>${['ins', 'fib', 'psw', 'fasc', 'amp', 'dur', 'poly', 'rec'].map(k => `<td class="${bad(k, e[k]) ? 'a' : ''}">${esc(e[k] || '—')}</td>`).join('')}<td>${esc((e.autre || []).join(', ') + (e.note ? (e.autre && e.autre.length ? ' · ' : '') + e.note : ''))}</td></tr>`;
+    return `<tr><td>${esc(muscleName(e.muscle))} ${esc(sideLbl(e.cote))}<span class="nm">${esc([e.nerf, e.rac].filter(Boolean).join(' · '))}</span></td>${['ins', 'fib', 'psw', 'fasc', 'amp', 'dur', 'poly', 'rec'].map(k => `<td class="${bad(k, e[k]) ? 'a' : ''}">${esc(e[k] || '—')}</td>`).join('')}<td>${esc((e.autre || []).join(', ') + (e.note ? (e.autre && e.autre.length ? ' · ' : '') + e.note : ''))}</td></tr>`;
   }).join('')}</tbody></table></div>` : '';
   const para = t => String(t || '').split(/\n{2,}|\n(?=\d+\.)/).map(x => x.trim()).filter(Boolean).map(x => `<p>${esc(x).replace(/\n/g, '<br>')}</p>`).join('');
   const sec = (title, body) => body ? `<h2>${title}</h2>${body}` : '';
   const body = `
-<h1>Rapport d'électrodiagnostic (EMG / conductions nerveuses)</h1>
-<table class="meta"><tr><td><b>Patient :</b> ${esc(pname)}</td><td><b>Date de l'examen :</b> ${esc(fmtDateLong(c.date))}</td></tr>
-<tr><td><b>DDN :</b> ${esc(p.ddn || '—')}${age != null ? ' (' + age + ' ans)' : ''}${p.sexe ? ' · ' + esc(p.sexe) : ''}</td><td><b>No dossier :</b> ${esc(p.dossier || '—')}</td></tr>
-<tr><td><b>Référent :</b> ${esc(c.clin.referent || '—')}</td><td><b>Examinateur :</b> ${esc(D.nom || '—')}</td></tr></table>
-${sec('Renseignements cliniques', para(S.renseignements || c.clin.motif))}
-${sec('Technique', para(S.technique))}
-${sec('Conductions nerveuses', ncsTable + para(S.ncs_resume))}
-${sec('EMG à l\'aiguille', emgTable + para(S.emg_resume))}
-${sec('Interprétation', para(S.interpretation))}
-${sec('Conclusion', para(S.conclusion))}
-${sec('Recommandations', para(S.recommandations))}
+<h1>${RT.title}</h1>
+<table class="meta"><tr><td><b>${RT.patient} :</b> ${esc(pname)}</td><td><b>${RT.date} :</b> ${esc(fmtDateLong(c.date))}</td></tr>
+<tr><td><b>${RT.dob} :</b> ${esc(p.ddn || '—')}${age != null ? ' (' + age + ' ' + RT.yrs + ')' : ''}${p.sexe ? ' · ' + esc(p.sexe) : ''}</td><td><b>${RT.mrn} :</b> ${esc(p.dossier || '—')}</td></tr>
+<tr><td><b>${RT.ref} :</b> ${esc(c.clin.referent || '—')}</td><td><b>${RT.exam} :</b> ${esc(D.nom || '—')}</td></tr></table>
+${sec(RT.s1, para(S.renseignements || c.clin.motif))}
+${sec(RT.s2, para(S.technique))}
+${sec(RT.s3, ncsTable + para(S.ncs_resume))}
+${sec(RT.s4, emgTable + para(S.emg_resume))}
+${sec(RT.s5, para(S.interpretation))}
+${sec(RT.s6, para(S.conclusion))}
+${sec(RT.s7, para(S.recommandations))}
 <div class="sig">${esc(D.nom || '')}${D.titre ? '<br>' + esc(D.titre) : ''}${D.etab ? '<br>' + esc(D.etab) : ''}${D.coord ? '<br>' + esc(D.coord) : ''}</div>
-<div class="disc">Rapport préparé avec l'assistance de Latence (IA Gemini), révisé et validé par le médecin signataire. Normes de référence : laboratoire / Preston & Shapiro (adulte).</div>`;
+<div class="disc">${RT.disc}</div>`;
   return {body, pname};
 }
 function reportHTMLDoc(c) {
   const {body, pname} = reportParts(c);
-  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>EMG — ${esc(pname)} — ${esc(c.date)}</title><style>${REP_CSS}</style></head><body>${body}</body></html>`;
+  return `<!doctype html><html lang="${reportLang()}"><head><meta charset="utf-8"><title>EMG — ${esc(pname)} — ${esc(c.date)}</title><style>${REP_CSS}</style></head><body>${body}</body></html>`;
 }
-function reportText(c) {
+function reportText(c) { return withLang(reportLang(), () => _reportText(c)); }
+function _reportText(c) {
   const ev = evaluate(c), p = c.patient, S = (c.report && c.report.sections) || {}, age = ageAt(p.ddn, c.date);
-  const L = [];
-  L.push('RAPPORT D\'ÉLECTRODIAGNOSTIC (EMG / CONDUCTIONS NERVEUSES)');
-  L.push(`Date : ${c.date}${age != null ? ' — Âge : ' + age + ' ans' : ''}`);
+  const L = [], RT = repT();
+  L.push(RT.title.toUpperCase());
+  L.push(`${RT.date} : ${c.date}${age != null ? ' — ' + RT.age + ' : ' + age + ' ' + RT.yrs : ''}`);
   const s = (t, v) => { if (v && String(v).trim()) { L.push(''); L.push(t.toUpperCase()); L.push(String(v).trim()); } };
-  s('Renseignements cliniques', S.renseignements || c.clin.motif);
-  s('Technique', S.technique);
+  s(RT.s1, S.renseignements || c.clin.motif);
+  s(RT.s2, S.technique);
   const nl = (c.ncs.rows || []).map((r, i) => {
     const o = ev.cells[i], fl = v => (v === 'a' || v === 'd') ? ' *' : '';
-    if (r.absent) return `- ${shortName(r)}${siteName(r) ? ' (' + siteName(r) + ')' : ''} : réponse absente *`;
+    if (r.absent) return `- ${shortName(r)}${siteName(r) ? ' (' + siteName(r) + ')' : ''} : ${EN() ? 'absent response' : 'réponse absente'} *`;
     const parts = [];
     const lat = rowLatency(r); if (lat != null) parts.push(`lat ${fmtL(lat)} ms${fl(o.lat)}`);
     if (r.amplitude != null) parts.push(`amp ${fmtN(r.amplitude, 1)} ${r.type === 'motor' ? 'mV' : 'µV'}${fl(o.amp)}`);
-    if (r.vitesse != null) parts.push(`VC ${fmtN(r.vitesse, 0)} m/s${fl(o.cv)}`);
+    if (r.vitesse != null) parts.push(`${EN() ? 'CV' : 'VC'} ${fmtN(r.vitesse, 0)} m/s${fl(o.cv)}`);
     if (r.f_lat != null) parts.push(`F ${fmtL(r.f_lat)} ms${fl(o.f)}`);
     return `- ${shortName(r)}${siteName(r) ? ' (' + siteName(r) + ')' : ''} : ${parts.join(', ')}`;
   });
-  s('Conductions nerveuses (* = hors normes)', nl.join('\n') + (S.ncs_resume ? '\n\n' + S.ncs_resume : ''));
-  const em = (c.emg || []).filter(emgFilled).map(e => `- ${e.muscle} ${e.cote} : ins ${e.ins || '—'}, fibs ${e.fib || '—'}, PSW ${e.psw || '—'}, fasc ${e.fasc || '—'}, PUM amp ${e.amp || '—'}/durée ${e.dur || '—'}/poly ${e.poly || '—'}, recrutement ${e.rec || '—'}${(e.autre || []).length ? ', ' + e.autre.join(', ') : ''}${e.note ? ' (' + e.note + ')' : ''}`);
-  if (em.length || S.emg_resume) s('EMG à l\'aiguille', em.join('\n') + (S.emg_resume ? '\n\n' + S.emg_resume : ''));
-  s('Interprétation', S.interpretation);
-  s('Conclusion', S.conclusion);
-  s('Recommandations', S.recommandations);
+  s(RT.s3 + (EN() ? ' (* = abnormal)' : ' (* = hors normes)'), nl.join('\n') + (S.ncs_resume ? '\n\n' + S.ncs_resume : ''));
+  const em = (c.emg || []).filter(emgFilled).map(e => `- ${muscleName(e.muscle)} ${sideLbl(e.cote)} : ins ${e.ins || '—'}, fibs ${e.fib || '—'}, PSW ${e.psw || '—'}, fasc ${e.fasc || '—'}, ${EN() ? 'MUAP' : 'PUM'} amp ${e.amp || '—'}/${EN() ? 'dur' : 'durée'} ${e.dur || '—'}/poly ${e.poly || '—'}, ${EN() ? 'recruitment' : 'recrutement'} ${e.rec || '—'}${(e.autre || []).length ? ', ' + e.autre.join(', ') : ''}${e.note ? ' (' + e.note + ')' : ''}`);
+  if (em.length || S.emg_resume) s(RT.s4, em.join('\n') + (S.emg_resume ? '\n\n' + S.emg_resume : ''));
+  s(RT.s5, S.interpretation);
+  s(RT.s6, S.conclusion);
+  s(RT.s7, S.recommandations);
   if (SET.doctor.nom) { L.push(''); L.push(SET.doctor.nom + (SET.doctor.titre ? ', ' + SET.doctor.titre : '')); }
   return L.join('\n');
 }

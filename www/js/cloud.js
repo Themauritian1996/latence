@@ -13,12 +13,13 @@ const FB_CONFIG = {
 const ADMINS = ['kasaskuengric@gmail.com', 'cahyan@hotmail.fr'];
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const ME_KEY = 'latence.me';
-const SYNC_KEYS = ['geminiKey', 'modelRead', 'modelThink', 'aiProfile', 'doctor', 'theme', 'norms', 'comps', 'rules',
+const SYNC_KEYS = ['lang', 'reportLang', 'reportLangSet', 'accent', 'textSize', 'geminiKey', 'modelRead', 'modelThink', 'aiProfile', 'doctor', 'theme', 'norms', 'comps', 'rules',
   'driveMode', 'driveFormat', 'driveImages', 'autoSync', 'rootName', 'driveUrl', 'driveSecret'];
 
 const AUTH = {state:'loading', user:null, msg:'', admin:false};
 let FB = null;
-let GTOKEN = (() => { try { return JSON.parse(sessionStorage.getItem('latence.gtoken') || 'null'); } catch (e) { return null; } })();
+let GTOKEN = (() => { try { return JSON.parse(localStorage.getItem('latence.gtoken') || 'null'); } catch (e) { return null; } })();
+const saveGToken = () => { try { if (GTOKEN) localStorage.setItem('latence.gtoken', JSON.stringify(GTOKEN)); else localStorage.removeItem('latence.gtoken'); } catch (e) {} };
 let PENDING_DEL = (() => { try { return JSON.parse(localStorage.getItem('latence.pendingDel') || '[]'); } catch (e) { return []; } })();
 const savePendingDel = () => { try { localStorage.setItem('latence.pendingDel', JSON.stringify(PENDING_DEL)); } catch (e) {} };
 const isNativeApp = () => !!CAP();
@@ -78,9 +79,9 @@ function authStart(onChange) {
 function googleProvider() { const p = new firebase.auth.GoogleAuthProvider(); p.addScope(DRIVE_SCOPE); p.setCustomParameters({prompt:'select_account'}); return p; }
 function keepToken(res) {
   const t = res && res.credential && res.credential.accessToken;
-  if (t) { GTOKEN = {t, exp: Date.now() + 55 * 60 * 1000, email: res.user && res.user.email}; try { sessionStorage.setItem('latence.gtoken', JSON.stringify(GTOKEN)); } catch (e) {} }
+  if (t) { GTOKEN = {t, exp: Date.now() + 55 * 60 * 1000, email: res.user && res.user.email}; saveGToken(); }
 }
-async function signInGoogle() { const fb = fbInit(); if (!fb) throw new Error('Pas de connexion Internet.'); const r = await fb.auth.signInWithPopup(googleProvider()); keepToken(r); return r; }
+async function signInGoogle() { const fb = fbInit(); if (!fb) throw new Error('Pas de connexion Internet.'); if (isNativeApp()) return openBridge(); const r = await fb.auth.signInWithPopup(googleProvider()); keepToken(r); return r; }
 async function signInEmail(email, pw) { const fb = fbInit(); if (!fb) throw new Error('Pas de connexion Internet.'); return fb.auth.signInWithEmailAndPassword(email.trim(), pw); }
 async function signUpEmail(email, pw) {
   const fb = fbInit(); if (!fb) throw new Error('Pas de connexion Internet.');
@@ -90,7 +91,7 @@ async function signUpEmail(email, pw) {
 }
 async function resetPw(email) { const fb = fbInit(); if (!fb) throw new Error('Pas de connexion Internet.'); await fb.auth.sendPasswordResetEmail(email.trim()); }
 async function signOutAll() {
-  GTOKEN = null; try { sessionStorage.removeItem('latence.gtoken'); localStorage.removeItem(ME_KEY); } catch (e) {}
+  GTOKEN = null; saveGToken(); try { localStorage.removeItem(ME_KEY); } catch (e) {}
   if (FB) await FB.auth.signOut();
   else Object.assign(AUTH, {state:'out', user:null, admin:false});
 }
@@ -178,10 +179,35 @@ async function inviteRemove(email) { await FB.db.collection('allowed').doc(email
    Google Drive personnel (API Drive, accès limité aux fichiers de l'app)
    ===================================================================== */
 const tokenValid = () => !!(GTOKEN && GTOKEN.t && GTOKEN.exp > Date.now() + 60000);
+/* ---------- App Android : connexion Google via le navigateur du téléphone ---------- */
+const BRIDGE_URL = 'https://themauritian1996.github.io/latence/connect.html';
+let BRIDGE_WAIT = null;
+async function openBridge() {
+  const P = CAP(); const url = BRIDGE_URL + '?lang=' + (typeof LANG === 'string' ? LANG : 'fr');
+  if (P && P.Browser) await P.Browser.open({url});
+  else window.open(url, '_system');
+  return new Promise((res, rej) => { BRIDGE_WAIT = {res, rej}; setTimeout(() => { if (BRIDGE_WAIT) { BRIDGE_WAIT = null; rej(new Error('Connexion Google non terminée.')); } }, 5 * 60 * 1000); });
+}
+async function handleBridgeReturn(url) {
+  const P = CAP(); try { if (P && P.Browser) P.Browser.close(); } catch (e) {}
+  const q = new URLSearchParams(String(url).split('?')[1] || '');
+  const at = q.get('at'), it = q.get('it');
+  if (!at) { if (BRIDGE_WAIT) { BRIDGE_WAIT.rej(new Error('Connexion Google annulée.')); BRIDGE_WAIT = null; } return; }
+  GTOKEN = {t: at, exp: +q.get('exp') || Date.now() + 50 * 60 * 1000, email: q.get('em') || ''}; saveGToken();
+  const fb = fbInit();
+  try {
+    if (fb) {
+      const cred = firebase.auth.GoogleAuthProvider.credential(it || null, at);
+      if (!fb.auth.currentUser) await fb.auth.signInWithCredential(cred);
+      else if (!hasProvider('google.com')) { try { await fb.auth.currentUser.linkWithCredential(cred); } catch (e) {} }
+    }
+    if (BRIDGE_WAIT) { BRIDGE_WAIT.res(GTOKEN); BRIDGE_WAIT = null; }
+  } catch (e) { if (BRIDGE_WAIT) { BRIDGE_WAIT.rej(e); BRIDGE_WAIT = null; } else throw e; }
+}
 async function driveConnect() {
   // Doit être appelé directement depuis un clic (fenêtre Google)
   const fb = fbInit(); if (!fb || !fb.auth.currentUser) throw new Error('Connecte-toi d\'abord.');
-  if (isNativeApp()) throw new Error('Dans l\'application Android, utilise le mode « Script » pour Drive, ou le site web.');
+  if (isNativeApp()) { await openBridge(); if (!tokenValid()) throw new Error('Accès Drive non accordé.'); return GTOKEN; }
   const u = fb.auth.currentUser; let r;
   try { r = hasProvider('google.com') ? await u.reauthenticateWithPopup(googleProvider()) : await u.linkWithPopup(googleProvider()); }
   catch (e) { if (e.code === 'auth/credential-already-in-use' || e.code === 'auth/provider-already-linked') r = await u.reauthenticateWithPopup(googleProvider()); else throw e; }
@@ -194,7 +220,7 @@ async function gfetch(url, opt) {
   if (!tokenValid()) throw new DriveAuthError('Reconnecte Google Drive (la connexion expire après une heure).');
   opt = opt || {}; opt.headers = Object.assign({Authorization: 'Bearer ' + GTOKEN.t}, opt.headers || {});
   const r = await fetch(url, opt);
-  if (r.status === 401) { GTOKEN = null; try { sessionStorage.removeItem('latence.gtoken'); } catch (e) {} throw new DriveAuthError('Reconnecte Google Drive.'); }
+  if (r.status === 401) { GTOKEN = null; saveGToken(); throw new DriveAuthError('Reconnecte Google Drive.'); }
   if (!r.ok) { let m = ''; try { m = (await r.json()).error.message; } catch (e) {} throw new Error('Google Drive : ' + (m || r.status)); }
   return r;
 }
@@ -233,4 +259,4 @@ async function driveSaveGoogle(c) {
   }
   return {url: pt.webViewLink || ''};
 }
-const driveModeEff = () => SET.driveMode || (SET.driveUrl ? 'script' : 'off');
+const driveModeEff = () => SET.driveMode || (SET.driveUrl && SET.driveSecret ? 'script' : 'google');

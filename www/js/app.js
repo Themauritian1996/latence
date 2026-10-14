@@ -381,6 +381,7 @@ function viewSettings() {
   const nr = NORMS().map((n, i) => `<div class="norm-row"><span>${esc(n.label)}</span>${['lat', 'amp', 'cv', 'f'].map(k => n[k] === undefined || (n[k] === null && n.grp === 'Comparatif') ? '<span></span>' : `<input inputmode="decimal" data-nf="${i}.${k}" value="${n[k] == null ? '' : n[k]}" aria-label="${k}">`).join('')}</div>`).join('');
   const R = RULES();
   return `<div class="wrap"><h1 class="hero-title" style="font-size:38px">Réglages</h1>
+  ${!SET.geminiKey || !SET.driveUrl ? `<div class="card"><h3 class="h3">Configuration rapide</h3><p class="muted small" style="margin:0 0 8px">Colle le code ou le lien de configuration reçu pour tout régler d'un coup.</p><div style="display:flex;gap:8px"><input class="field" id="cfg-code" placeholder="https://…#config=… ou code" autocomplete="off"><button class="btn sm primary" data-a="cfg-apply">Appliquer</button></div></div>` : ''}
   <details class="acc" ${!SET.geminiKey ? 'open' : ''}><summary>Gemini (IA) ${SET.geminiKey ? '<span class="tag pos">configuré</span>' : '<span class="tag neg">à faire</span>'} ${ic('down', 18)}</summary><div class="acc-in">
     <ol class="howto"><li>Va sur <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> et crée une clé API.</li><li>Colle-la ci-dessous, puis touche « Tester ».</li><li>Pour des données de patients, active la facturation sur le projet de la clé : au niveau payant, Google n'utilise pas les requêtes pour entraîner ses modèles.</li></ol>
     <label class="lab">Clé API<input class="field" type="password" autocomplete="off" data-sf="geminiKey" value="${esc(SET.geminiKey)}" placeholder="AIza…"></label>
@@ -625,6 +626,17 @@ function caseMenu() {
   <button class="row" data-a="case-del" style="color:var(--neg)">${ic('trash')}<span style="flex:1">Supprimer ce cas</span></button>`);
 }
 
+function applyConfigCode(code) {
+  const m = String(code || '').trim().match(/(?:#|^)(?:config=)?([A-Za-z0-9_\-]+={0,2})$/);
+  if (!m) throw new Error('Code de configuration invalide.');
+  let j; try { j = JSON.parse(decodeURIComponent(escape(atob(m[1].replace(/-/g, '+').replace(/_/g, '/'))))); } catch (e) { throw new Error('Code de configuration illisible.'); }
+  if (j.k) SET.geminiKey = String(j.k).trim();
+  if (j.u) SET.driveUrl = String(j.u).trim();
+  if (j.s) SET.driveSecret = String(j.s).trim();
+  if (j.m) { SET.modelRead = j.m; SET.modelThink = j.m; }
+  if (j.n) SET.doctor.nom = j.n;
+  saveSet(); return j;
+}
 const DRIVE_SCRIPT = (secret) => DRIVE_SCRIPT_SRC.replace('__SECRET__', secret || 'CHANGE-MOI');
 
 async function handle(a, el) {
@@ -680,6 +692,7 @@ async function handle(a, el) {
     // Réglages
     case 'theme': SET.theme = d.v; saveSet(); rerender(); break;
     case 'set-bool': SET[d.k] = d.v === '1'; saveSet(); rerender(); break;
+    case 'cfg-apply': { try { applyConfigCode($('#cfg-code').value); toast('Configuration appliquée ✓'); rerender(); } catch (e) { toast(e.message); } break; }
     case 'secret-gen': SET.driveSecret = randomSecret(); saveSet(); rerender(); toast('Mot de passe généré'); break;
     case 'script-copy': if (!SET.driveSecret) { SET.driveSecret = randomSecret(); saveSet(); rerender(); } copyText(DRIVE_SCRIPT(SET.driveSecret)); break;
     case 'gem-test': busy('Test de Gemini…'); try { const j = await gemini([{text:'Réponds {"ok":true}'}], {model:SET.modelRead, timeout:30000}); busy(); toast(j && j.ok ? 'Gemini fonctionne ✓ (' + GEM_LAST_MODEL + ')' : 'Réponse inattendue'); } catch (e) { busy(); toast(e.message); } break;
@@ -785,6 +798,10 @@ function onBack() {
   applyTheme();
   try { await DB.open(); CASES = (await DB.all('cases')) || []; }
   catch (e) { CASES = []; toast('Stockage local indisponible : ' + e.message); }
+  if (/^#config=/.test(location.hash)) {
+    try { applyConfigCode(location.hash); toast('Configuration appliquée ✓ — Gemini et Drive sont prêts'); } catch (e) { toast(e.message); }
+    history.replaceState(null, '', location.pathname + location.search);
+  }
   render();
   const P = CAP();
   if (P && P.App) P.App.addListener('backButton', () => { if (!onBack()) P.App.exitApp(); });

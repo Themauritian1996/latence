@@ -25,6 +25,12 @@ jobs:
           if [ -f latence-source.zip ]; then unzip -o latence-source.zip -d . ; fi
           test -f www/index.html
 
+      - name: Version des fichiers (mises à jour immédiates)
+        run: |
+          sed -i "s/?v=dev/?v=${{ github.run_number }}/g" www/index.html
+          sed -i "s/latence-v[0-9]*/latence-r${{ github.run_number }}/" www/sw.js
+          sed -i "s#'./js/\([a-z-]*\).js'#'./js/\1.js?v=${{ github.run_number }}'#g" www/sw.js
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -84,6 +90,11 @@ jobs:
         run: |
           if [ -f latence-source.zip ]; then unzip -o latence-source.zip -d . ; fi
           test -f www/index.html
+      - name: Version des fichiers (mises à jour immédiates)
+        run: |
+          sed -i "s/?v=dev/?v=${{ github.run_number }}/g" www/index.html
+          sed -i "s/latence-v[0-9]*/latence-r${{ github.run_number }}/" www/sw.js
+          sed -i "s#'./js/\([a-z-]*\).js'#'./js/\1.js?v=${{ github.run_number }}'#g" www/sw.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

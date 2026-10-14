@@ -3,7 +3,7 @@
    Latence — noyau : utilitaires, réglages, stockage, Gemini, normes,
    rapport, Google Drive
    ===================================================================== */
-const APP_VERSION = '1.0';
+const APP_VERSION = '1.1';
 const $ = (s, r) => (r || document).querySelector(s);
 const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const uid = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-6);

@@ -386,7 +386,7 @@ function viewSettings() {
     <label class="lab">Clé API<input class="field" type="password" autocomplete="off" data-sf="geminiKey" value="${esc(SET.geminiKey)}" placeholder="AIza…"></label>
     <label class="lab">Modèle pour lire les photos${mdl('modelRead')}</label>
     <label class="lab">Modèle pour l'analyse et le rapport${mdl('modelThink')}</label>
-    <p class="muted small" style="margin:-4px 0 8px">Recommandé : ${DEFAULT_MODEL} (rapide). Pour une interprétation plus poussée : un modèle « pro » ou « argon » si disponible sur ta clé.</p>
+    <p class="muted small" style="margin:-4px 0 8px">Recommandé : ${DEFAULT_MODEL}. Si le modèle choisi est surchargé ou hors quota, l'app bascule automatiquement sur un autre modèle Flash. Les modèles « pro » ou « argon » demandent la facturation active.</p>
     <div class="btns"><button class="btn sm ghost" data-a="gem-test">${ic('check', 16)} Tester</button><button class="btn sm ghost" data-a="gem-models">${ic('refresh', 16)} Charger les modèles</button></div>
   </div></details>
 
@@ -682,7 +682,7 @@ async function handle(a, el) {
     case 'set-bool': SET[d.k] = d.v === '1'; saveSet(); rerender(); break;
     case 'secret-gen': SET.driveSecret = randomSecret(); saveSet(); rerender(); toast('Mot de passe généré'); break;
     case 'script-copy': if (!SET.driveSecret) { SET.driveSecret = randomSecret(); saveSet(); rerender(); } copyText(DRIVE_SCRIPT(SET.driveSecret)); break;
-    case 'gem-test': busy('Test de Gemini…'); try { const j = await gemini([{text:'Réponds {"ok":true}'}], {model:SET.modelRead, timeout:30000}); busy(); toast(j && j.ok ? 'Gemini fonctionne ✓' : 'Réponse inattendue'); } catch (e) { busy(); toast(e.message); } break;
+    case 'gem-test': busy('Test de Gemini…'); try { const j = await gemini([{text:'Réponds {"ok":true}'}], {model:SET.modelRead, timeout:30000}); busy(); toast(j && j.ok ? 'Gemini fonctionne ✓ (' + GEM_LAST_MODEL + ')' : 'Réponse inattendue'); } catch (e) { busy(); toast(e.message); } break;
     case 'gem-models': busy('Chargement des modèles…'); try { S.models = await geminiModels(); busy(); rerender(); toast(S.models.length + ' modèles disponibles'); } catch (e) { busy(); toast(e.message); } break;
     case 'drive-test': busy('Test de Google Drive…'); try { const j = await driveCall({action:'ping'}, 30000); busy(); toast('Drive connecté ✓ ' + (j.rootName || '')); } catch (e) { busy(); toast(e.message); } break;
     case 'drive-all': { const list = CASES.filter(c => c.report); if (!list.length) return toast('Aucun rapport à envoyer'); busy('Envoi de ' + list.length + ' rapport(s)…'); for (const c of list) await sendDrive(c, true); busy(); toast('Envoi terminé'); rerender(); break; }

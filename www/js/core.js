@@ -122,14 +122,29 @@ function upSchema(o) {
   const r = {}; Object.keys(o).forEach(k => { r[k] = k === 'type' && typeof o[k] === 'string' ? o[k].toUpperCase() : (k === 'enum' || k === 'required' ? o[k] : upSchema(o[k])); });
   return r;
 }
+const FALLBACK_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-flash-latest'];
+let GEM_LAST_MODEL = '';
 async function gemini(parts, opt) {
   opt = opt || {};
   if (!SET.geminiKey) throw new Error('Ajoute ta clé API Gemini dans Réglages.');
-  const model = (opt.model || SET.modelThink || DEFAULT_MODEL).replace(/^models\//, '');
+  const first = (opt.model || SET.modelThink || DEFAULT_MODEL).replace(/^models\//, '');
+  const chain = [first, ...FALLBACK_MODELS.filter(m => m !== first)];
+  let lastErr = null;
+  for (let i = 0; i < chain.length; i++) {
+    try { const res = await geminiOnce(chain[i], parts, opt); GEM_LAST_MODEL = chain[i]; return res; }
+    catch (e) {
+      lastErr = e;
+      // Basculer vers un autre modèle seulement si celui-ci est surchargé, hors quota ou introuvable
+      if (!e.retryable) throw e;
+    }
+  }
+  throw lastErr;
+}
+async function geminiOnce(model, parts, opt) {
   const url = `${GEM_BASE}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(SET.geminiKey)}`;
   const gc = {responseMimeType:'application/json'};
   if (opt.schema) gc.responseSchema = upSchema(opt.schema);
-  if (!/gemini-([3-9]|\d\d)/.test(model)) gc.temperature = 0.2; // Gemini 3+ : garder la température par défaut
+  if (!/gemini-([3-9]|\d\d)|latest/.test(model)) gc.temperature = 0.2; // Gemini 3+ : garder la température par défaut
   const body = {contents:[{role:'user', parts}], generationConfig:gc};
   if (opt.system) body.systemInstruction = {parts:[{text:opt.system}]};
   const call = async () => {
@@ -138,12 +153,13 @@ async function gemini(parts, opt) {
     catch (e) { throw new Error(e.name === 'AbortError' ? 'Gemini a mis trop de temps à répondre. Réessaie.' : 'Pas de connexion à Gemini. Vérifie Internet.'); }
     finally { clearTimeout(to); }
   };
+  const fail = (status, t) => { const e = new Error(gemErr(status, t)); e.retryable = status === 429 || status === 404 || status >= 500; return e; };
   let r = await call();
   if (!r.ok) {
     const t = await r.text();
-    if (r.status === 400 && gc.responseSchema && /schema|response_?schema|Invalid JSON payload|Unknown name/i.test(t)) { delete gc.responseSchema; r = await call(); if (!r.ok) throw new Error(gemErr(r.status, await r.text())); }
-    else if (r.status === 503 || r.status === 500) { await new Promise(s => setTimeout(s, 2500)); r = await call(); if (!r.ok) throw new Error(gemErr(r.status, await r.text())); }
-    else throw new Error(gemErr(r.status, t));
+    if (r.status === 400 && gc.responseSchema && /schema|response_?schema|Invalid JSON payload|Unknown name/i.test(t)) { delete gc.responseSchema; r = await call(); if (!r.ok) throw fail(r.status, await r.text()); }
+    else if (r.status === 503 || r.status === 500) { await new Promise(s => setTimeout(s, 1500)); r = await call(); if (!r.ok) throw fail(r.status, await r.text()); }
+    else throw fail(r.status, t);
   }
   const j = await r.json();
   const cand = j.candidates && j.candidates[0];

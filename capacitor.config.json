@@ -1,0 +1,15 @@
+{
+  "appId": "com.chris.latence",
+  "appName": "Latence",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#000000"
+  },
+  "plugins": {
+    "StatusBar": {
+      "backgroundColor": "#000000",
+      "style": "DARK",
+      "overlaysWebView": false
+    }
+  }
+}

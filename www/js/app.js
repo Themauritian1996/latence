@@ -485,7 +485,7 @@ async function extractNcs() {
 }
 async function analyze() {
   const c = cur;
-  busy('Analyse en cours…', 'Interprétation et plan d\'EMG');
+  busy('Analyse en cours…', 'Interprétation et plan d\'EMG — environ 1 à 2 minutes');
   try {
     const ev = evaluate(c);
     const payload = {
@@ -495,7 +495,7 @@ async function analyze() {
       autres_infos: c.ncs.autres || null,
       bibliotheque_muscles: MUSCLES.map(m => `${m.n} (${m.en}) — ${m.nerf}, ${m.rac}`)
     };
-    const a = await gemini([{text:PROMPT_ANALYSIS + '\n\nDONNÉES :\n' + JSON.stringify(payload)}], {system:SYS_BASE + '\n' + KNOWLEDGE, schema:SCHEMA_ANALYSIS, model:SET.modelThink});
+    const a = await gemini([{text:PROMPT_ANALYSIS + '\n\nDONNÉES :\n' + JSON.stringify(payload)}], {system:SYS_BASE + '\n' + KNOWLEDGE, schema:SCHEMA_ANALYSIS, model:SET.modelThink, onWait: () => busy('Gemini est très sollicité…', 'Nouvel essai automatique en cours')});
     a.emg_plan = (a.emg_plan || []).map(m => Object.assign(m, {sel: m.priorite !== 'optionnel'}));
     a.at = Date.now(); c.analysis = a; touch(true); await saveNow();
     S.step = 3; busy(); render(); window.scrollTo(0, 0);
@@ -531,7 +531,7 @@ async function extractEmg() {
 }
 async function genReport() {
   const c = cur;
-  busy('Rédaction du rapport…', 'Gemini rédige à partir de tes résultats');
+  busy('Rédaction du rapport…', 'Gemini rédige à partir de tes résultats — environ 1 à 2 minutes');
   try {
     const ev = evaluate(c);
     const payload = {
@@ -541,7 +541,7 @@ async function genReport() {
       emg_aiguille: emgContext(c), commentaires_examen: c.emgNote || null,
       membres_etudies: c.clin.membres
     };
-    const r = await gemini([{text:PROMPT_REPORT + '\n\nDONNÉES :\n' + JSON.stringify(payload)}], {system:SYS_BASE + '\n' + KNOWLEDGE, schema:SCHEMA_REPORT, model:SET.modelThink});
+    const r = await gemini([{text:PROMPT_REPORT + '\n\nDONNÉES :\n' + JSON.stringify(payload)}], {system:SYS_BASE + '\n' + KNOWLEDGE, schema:SCHEMA_REPORT, model:SET.modelThink, onWait: () => busy('Gemini est très sollicité…', 'Nouvel essai automatique en cours')});
     c.report = {sections:{renseignements:r.renseignements || '', technique:r.technique || '', ncs_resume:r.ncs_resume || '', emg_resume:r.emg_resume || '', interpretation:r.interpretation || '', conclusion:r.conclusion || '', recommandations:r.recommandations || ''}, at:Date.now()};
     c.final = false; touch(true); await saveNow();
     S.step = 5; S.editReport = false; busy(); render(); window.scrollTo(0, 0);

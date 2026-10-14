@@ -130,14 +130,19 @@ async function gemini(parts, opt) {
   const first = (opt.model || SET.modelThink || DEFAULT_MODEL).replace(/^models\//, '');
   const chain = [first, ...FALLBACK_MODELS.filter(m => m !== first)];
   let lastErr = null;
-  for (let i = 0; i < chain.length; i++) {
-    try { const res = await geminiOnce(chain[i], parts, opt); GEM_LAST_MODEL = chain[i]; return res; }
-    catch (e) {
-      lastErr = e;
-      // Basculer vers un autre modèle seulement si celui-ci est surchargé, hors quota ou introuvable
-      if (!e.retryable) throw e;
+  // Jusqu'à 3 tours de la chaîne de modèles (pause croissante) si Google est surchargé
+  for (let pass = 0; pass < 3; pass++) {
+    if (pass) { if (opt.onWait) opt.onWait(pass); await new Promise(s => setTimeout(s, pass * 6000)); }
+    for (let i = 0; i < chain.length; i++) {
+      try { const res = await geminiOnce(chain[i], parts, opt); GEM_LAST_MODEL = chain[i]; return res; }
+      catch (e) {
+        lastErr = e;
+        // Basculer vers un autre modèle seulement si celui-ci est surchargé, hors quota ou introuvable
+        if (!e.retryable) throw e;
+      }
     }
   }
+  if (lastErr && /indisponible/.test(lastErr.message)) throw new Error('Les serveurs Gemini sont surchargés en ce moment. Tes données sont gardées : réessaie dans quelques minutes.');
   throw lastErr;
 }
 async function geminiOnce(model, parts, opt) {
@@ -158,7 +163,7 @@ async function geminiOnce(model, parts, opt) {
   if (!r.ok) {
     const t = await r.text();
     if (r.status === 400 && gc.responseSchema && /schema|response_?schema|Invalid JSON payload|Unknown name/i.test(t)) { delete gc.responseSchema; r = await call(); if (!r.ok) throw fail(r.status, await r.text()); }
-    else if (r.status === 503 || r.status === 500) { await new Promise(s => setTimeout(s, 1500)); r = await call(); if (!r.ok) throw fail(r.status, await r.text()); }
+    else if (r.status === 503 || r.status === 500) { throw fail(r.status, t); }
     else throw fail(r.status, t);
   }
   const j = await r.json();
@@ -476,6 +481,7 @@ async function driveCall(payload, timeout) {
   return j;
 }
 async function driveSaveCase(c) {
+  if (!c.report) throw new Error('Génère le rapport avant de l\'envoyer au Drive.');
   const images = [];
   if (SET.driveImages) for (const ph of [...(c.photos || []), ...(c.emgPhotos || [])]) { const d = await photoData(ph.id); const pp = dataUrlParts(d); if (pp) images.push(pp); }
   return driveCall({action:'save', date:c.date, patientFolder:patientFolder(c), baseName:baseName(c), html:reportHTMLDoc(c), text:reportText(c), caseId:c.id, caseJson:JSON.stringify(storableCase(c)), images}, 180000);

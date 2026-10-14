@@ -71,6 +71,12 @@ jobs:
           ./gradlew assembleDebug --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk ../Latence.apk
 
+      - name: Garder l'APK pour le site
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: Latence.apk
+
       - name: Publier dans Releases
         uses: softprops/action-gh-release@v2
         with:
@@ -80,6 +86,8 @@ jobs:
           files: Latence.apk
 
   site:
+    needs: apk
+    if: always()
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -95,6 +103,12 @@ jobs:
           sed -i "s/?v=dev/?v=${{ github.run_number }}/g" www/index.html
           sed -i "s/latence-v[0-9]*/latence-r${{ github.run_number }}/" www/sw.js
           sed -i "s#'./js/\([a-z-]*\).js'#'./js/\1.js?v=${{ github.run_number }}'#g" www/sw.js
+      - name: Ajouter l'APK au site (téléchargement direct)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: apk
+          path: www
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

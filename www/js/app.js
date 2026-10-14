@@ -105,7 +105,7 @@ async function copyText(t) {
 async function saveFile(name, mime, content) {
   const P = CAP();
   if (P && P.Filesystem && P.Share) {
-    const b64 = btoa(unescape(encodeURIComponent(content)));
+    const b64 = content instanceof Uint8Array ? u8ToB64(content) : btoa(unescape(encodeURIComponent(content)));
     const w = await P.Filesystem.writeFile({path:name, data:b64, directory:'CACHE'});
     await P.Share.share({title:name, files:[w.uri]}).catch(() => {});
     return;
@@ -352,6 +352,7 @@ function stepReport(c) {
   <div class="btns no-print" style="margin-top:0">
     <button class="btn sm ${S.editReport ? 'primary' : 'ghost'}" data-a="edit-report">${ic(S.editReport ? 'check' : 'edit', 16)} ${S.editReport ? 'Aperçu' : 'Modifier'}</button>
     <button class="btn sm ghost" data-a="rep-copy">${ic('copy', 16)} Copier (DME)</button>
+    <button class="btn sm ghost" data-a="rep-word">${ic('doc', 16)} Word</button>
     <button class="btn sm ghost" data-a="rep-export">${ic(CAP() ? 'share' : 'print', 16)} ${CAP() ? 'Partager' : 'PDF / imprimer'}</button>
   </div>
   ${dr.state === 'ok' ? `<div class="note good no-print">${ic('cloud', 16)} Dans Drive (${esc(c.date)} › ${esc(patientFolder(c))})${dr.url ? ` — <a href="${esc(dr.url)}" target="_blank" rel="noopener">ouvrir le dossier</a>` : ''}</div>` : dr.state === 'err' ? `<div class="note bad no-print">Envoi Drive échoué : ${esc(dr.error || '')}</div>` : dr.state === 'stale' ? '<div class="note warn no-print">Modifié depuis le dernier envoi au Drive.</div>' : ''}
@@ -392,7 +393,7 @@ function viewSettings() {
   </div></details>
 
   <details class="acc" ${SET.geminiKey && !SET.driveUrl ? 'open' : ''}><summary>Google Drive ${SET.driveUrl ? '<span class="tag pos">connecté</span>' : '<span class="tag">optionnel</span>'} ${ic('down', 18)}</summary><div class="acc-in">
-    <p class="small" style="margin:0 0 8px">Chaque rapport finalisé est enregistré en PDF (et texte) dans <b>${esc(SET.rootName)} › date › patient</b>, avec les photos si tu le souhaites.</p>
+    <p class="small" style="margin:0 0 8px">Chaque rapport finalisé est enregistré en Word (ou PDF) avec une version texte dans <b>${esc(SET.rootName)} › date › patient</b>, avec les photos si tu le souhaites.</p>
     <ol class="howto">
       <li>Touche « Générer » pour créer ton mot de passe de synchronisation, puis « Copier le script ».</li>
       <li>Sur un ordinateur, ouvre <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener">script.google.com</a> (compte Google du Drive voulu), efface le contenu et colle le script.</li>
@@ -403,6 +404,8 @@ function viewSettings() {
     <button class="btn sm ghost" data-a="script-copy" style="margin:0 0 12px">${ic('copy', 16)} Copier le script (secret inclus)</button>
     <label class="lab">URL de l'application Web<input class="field" data-sf="driveUrl" value="${esc(SET.driveUrl)}" placeholder="https://script.google.com/macros/s/…/exec"></label>
     <label class="lab">Dossier racine<input class="field" data-sf="rootName" value="${esc(SET.rootName)}"></label>
+    <label class="lab">Format du rapport dans Drive</label>
+    <div class="seg" role="group" aria-label="Format">${[['docx', 'Word'], ['pdf', 'PDF'], ['both', 'Les deux']].map(([k, l]) => `<button data-a="set-val" data-k="driveFormat" data-v="${k}" class="${(SET.driveFormat || 'docx') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div class="seg" role="group" aria-label="Photos"><button data-a="set-bool" data-k="driveImages" data-v="1" class="${SET.driveImages ? 'on' : ''}">Avec photos</button><button data-a="set-bool" data-k="driveImages" data-v="0" class="${!SET.driveImages ? 'on' : ''}">Sans photos</button></div>
     <div class="seg" role="group" aria-label="Envoi"><button data-a="set-bool" data-k="autoSync" data-v="1" class="${SET.autoSync ? 'on' : ''}">Envoi à la finalisation</button><button data-a="set-bool" data-k="autoSync" data-v="0" class="${!SET.autoSync ? 'on' : ''}">Manuel</button></div>
     <div class="btns"><button class="btn sm ghost" data-a="drive-test">${ic('check', 16)} Tester</button><button class="btn sm ghost" data-a="drive-pull">${ic('download', 16)} Récupérer l'historique</button><button class="btn sm ghost" data-a="drive-all">${ic('upload', 16)} Envoyer tout</button></div>
@@ -671,6 +674,7 @@ async function handle(a, el) {
     case 'report-gen': genReport(); break;
     case 'edit-report': S.editReport = !S.editReport; rerender(); break;
     case 'rep-copy': closeSheet(); copyText(reportText(cur)); break;
+    case 'rep-word': await saveFile(baseName(cur) + '.docx', DOCX_MIME, reportDocx(cur)); break;
     case 'rep-export': {
       if (CAP()) { await saveFile(baseName(cur) + '.html', 'text/html', reportHTMLDoc(cur)); }
       else { const w = window.open('', '_blank'); if (w) { w.document.write(reportHTMLDoc(cur)); w.document.close(); setTimeout(() => w.print(), 400); } else window.print(); }
@@ -691,6 +695,7 @@ async function handle(a, el) {
     case 'sheet-close-bg': closeSheet(); break;
     // Réglages
     case 'theme': SET.theme = d.v; saveSet(); rerender(); break;
+    case 'set-val': SET[d.k] = d.v; saveSet(); rerender(); break;
     case 'set-bool': SET[d.k] = d.v === '1'; saveSet(); rerender(); break;
     case 'cfg-apply': { try { applyConfigCode($('#cfg-code').value); toast('Configuration appliquée ✓'); rerender(); } catch (e) { toast(e.message); } break; }
     case 'secret-gen': SET.driveSecret = randomSecret(); saveSet(); rerender(); toast('Mot de passe généré'); break;

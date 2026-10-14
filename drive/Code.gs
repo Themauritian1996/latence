@@ -2,7 +2,7 @@
  * Latence — synchronisation Google Drive
  *
  * Classe chaque rapport dans :  <Dossier racine> / AAAA-MM-JJ / NOM Prénom – dossier /
- *   - Rapport en PDF (+ version texte pour le DME)
+ *   - Rapport en Word (.docx) et/ou PDF (+ version texte pour le DME)
  *   - Photos des tableaux (si activé dans l'application)
  * et garde une copie des cas dans <Dossier racine> / _donnees-app (pour récupérer l'historique).
  *
@@ -35,13 +35,14 @@ function doGet() {
 }
 
 function save(root, r) {
-  if (!r.date || !r.patientFolder || !r.baseName || !r.html) return {ok: false, error: 'Données incomplètes.'};
+  if (!r.date || !r.patientFolder || !r.baseName || !(r.docx || r.html)) return {ok: false, error: 'Données incomplètes.'};
   const day = folder(root, r.date);
   const pt = folder(day, r.patientFolder);
   const base = r.baseName;
   trashPrefix(pt, base);                       // remplace la version précédente du même examen
-  const pdf = Utilities.newBlob(r.html, MimeType.HTML, base + '.html').getAs(MimeType.PDF).setName(base + '.pdf');
-  const file = pt.createFile(pdf);
+  let file = null;
+  if (r.docx) file = pt.createFile(Utilities.newBlob(Utilities.base64Decode(r.docx), MimeType.MICROSOFT_WORD, base + '.docx'));
+  if (r.html) { const pdf = pt.createFile(Utilities.newBlob(r.html, MimeType.HTML, base + '.html').getAs(MimeType.PDF).setName(base + '.pdf')); file = file || pdf; }
   if (r.text) pt.createFile(base + '.txt', r.text, MimeType.PLAIN_TEXT);
   (r.images || []).forEach(function (im, i) {
     pt.createFile(Utilities.newBlob(Utilities.base64Decode(im.data), im.mime || 'image/jpeg', base + ' – photo ' + (i + 1) + '.jpg'));
@@ -51,7 +52,7 @@ function save(root, r) {
     trashPrefix(data, r.caseId + '.json');
     data.createFile(r.caseId + '.json', r.caseJson, MimeType.PLAIN_TEXT);
   }
-  return {ok: true, url: pt.getUrl(), fileUrl: file.getUrl()};
+  return {ok: true, url: pt.getUrl(), fileUrl: file.getUrl(), version: 2};
 }
 
 function pull(root) {

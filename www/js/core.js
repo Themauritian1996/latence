@@ -35,7 +35,7 @@ const ST_KEY = 'latence.settings';
 const DEFAULT_MODEL = 'gemini-3.8-flash';
 const SET_DEFAULT = {
   geminiKey:'', modelRead:DEFAULT_MODEL, modelThink:DEFAULT_MODEL,
-  driveUrl:'', driveSecret:'', driveImages:true, autoSync:true, rootName:'Latence – Rapports EMG',
+  driveUrl:'', driveSecret:'', driveImages:true, driveFormat:'docx', autoSync:true, rootName:'Latence – Rapports EMG',
   doctor:{nom:'', titre:'', etab:'', coord:''},
   theme:'auto', norms:null, comps:null, rules:null, onboarded:false, lastPull:0
 };
@@ -484,5 +484,8 @@ async function driveSaveCase(c) {
   if (!c.report) throw new Error('Génère le rapport avant de l\'envoyer au Drive.');
   const images = [];
   if (SET.driveImages) for (const ph of [...(c.photos || []), ...(c.emgPhotos || [])]) { const d = await photoData(ph.id); const pp = dataUrlParts(d); if (pp) images.push(pp); }
-  return driveCall({action:'save', date:c.date, patientFolder:patientFolder(c), baseName:baseName(c), html:reportHTMLDoc(c), text:reportText(c), caseId:c.id, caseJson:JSON.stringify(storableCase(c)), images}, 180000);
+  const fmt = SET.driveFormat || 'docx';
+  return driveCall({action:'save', date:c.date, patientFolder:patientFolder(c), baseName:baseName(c), format:fmt,
+    docx: fmt !== 'pdf' ? u8ToB64(reportDocx(c)) : '', html: fmt !== 'docx' ? reportHTMLDoc(c) : '',
+    text:reportText(c), caseId:c.id, caseJson:JSON.stringify(storableCase(c)), images}, 180000);
 }
